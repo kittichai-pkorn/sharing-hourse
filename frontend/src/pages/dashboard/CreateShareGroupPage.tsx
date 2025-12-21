@@ -224,7 +224,7 @@ export default function CreateShareGroupPage() {
                       name="cycleType"
                       value={value}
                       checked={formData.cycleType === value}
-                      onChange={(e) => setFormData({ ...formData, cycleType: e.target.value })}
+                      onChange={(e) => setFormData({ ...formData, cycleType: e.target.value, cycleDays: e.target.value === 'DAILY' ? 1 : 0 })}
                       className="mr-2"
                     />
                     {label}
@@ -232,6 +232,22 @@ export default function CreateShareGroupPage() {
                 ))}
               </div>
             </div>
+
+            {formData.cycleType === 'DAILY' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700">ระยะห่างงวด (วัน) *</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={formData.cycleDays || 1}
+                  onChange={(e) => setFormData({ ...formData, cycleDays: parseInt(e.target.value) || 1 })}
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="mt-1 text-sm text-gray-500">
+                  เช่น ระบุ 3 = ทุก 3 วัน (วันที่ 1, 4, 7...)
+                </p>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700">วันที่เริ่มต้น *</label>
@@ -300,7 +316,11 @@ export default function CreateShareGroupPage() {
               </div>
               <div>
                 <span className="text-gray-500">รอบชำระ:</span>
-                <span className="ml-2 font-medium">{cycleTypeLabels[formData.cycleType]}</span>
+                <span className="ml-2 font-medium">
+                  {formData.cycleType === 'DAILY'
+                    ? `ทุก ${formData.cycleDays} วัน`
+                    : cycleTypeLabels[formData.cycleType]}
+                </span>
               </div>
               <div>
                 <span className="text-gray-500">เริ่มต้น:</span>
