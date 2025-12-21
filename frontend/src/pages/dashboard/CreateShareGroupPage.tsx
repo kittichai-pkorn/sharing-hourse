@@ -312,10 +312,10 @@ export default function CreateShareGroupPage() {
                   <span className="ml-2 font-medium">{formData.managementFee.toLocaleString()} บาท</span>
                 </div>
               )}
-              {formData.fixedInterest && (
+              {formData.interestRate && (
                 <div>
                   <span className="text-gray-500">ดอกเบี้ยคงที่:</span>
-                  <span className="ml-2 font-medium">{formData.fixedInterest.toLocaleString()} บาท</span>
+                  <span className="ml-2 font-medium">{formData.interestRate.toLocaleString()} บาท</span>
                 </div>
               )}
             </div>
