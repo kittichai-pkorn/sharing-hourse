@@ -1,0 +1,79 @@
+import { useEffect } from 'react';
+import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
+import { useAuthStore } from '../stores/authStore';
+
+export default function DashboardLayout() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user, tenant, isAuthenticated, logout, checkAuth } = useAuthStore();
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, navigate]);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  const navItems = [
+    { path: '/dashboard', label: 'Dashboard' },
+    { path: '/profile', label: 'โปรไฟล์' },
+    ...(user?.role === 'ADMIN' ? [{ path: '/members', label: 'สมาชิก' }] : []),
+  ];
+
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-100">
+      {/* Header */}
+      <header className="bg-white shadow">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-6">
+            <h1 className="text-xl font-bold text-gray-900">{tenant?.name}</h1>
+            <nav className="flex gap-4">
+              {navItems.map((item) => (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`text-sm ${
+                    location.pathname === item.path
+                      ? 'text-blue-600 font-medium'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-600">
+              {user?.firstName} {user?.lastName}
+            </span>
+            <button
+              onClick={handleLogout}
+              className="text-sm text-gray-600 hover:text-gray-900"
+            >
+              ออกจากระบบ
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        <Outlet />
+      </main>
+    </div>
+  );
+}

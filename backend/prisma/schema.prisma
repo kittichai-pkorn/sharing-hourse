@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== Super Admin ====================
+model SuperAdmin {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==================== Tenant (องค์กร/วง) ====================
+model Tenant {
+  id        Int          @id @default(autoincrement())
+  name      String
+  slug      String       @unique
+  status    TenantStatus @default(PENDING)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  users       User[]
+  shareGroups ShareGroup[]
+}
+
+enum TenantStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+// ==================== User (ท้าวแชร์/ลูกแชร์) ====================
+model User {
+  id        Int      @id @default(autoincrement())
+  tenantId  Int
+  firstName String
+  lastName  String
+  phone     String
+  email     String?
+  password  String
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  shareGroups  ShareGroup[]  @relation("HostedGroups")
+  memberships  GroupMember[]
+
+  @@unique([tenantId, phone])
+}
+
+enum UserRole {
+  ADMIN // ท้าวแชร์
+  USER  // ลูกแชร์
+}
+
+// ==================== Share Group (วงแชร์) ====================
+model ShareGroup {
+  id              Int            @id @default(autoincrement())
+  tenantId        Int
+  hostId          Int
+  name            String
+  type            ShareGroupType
+  maxMembers      Int
+  principalAmount Float          // เงินต้นต่องวด
+  interestRate    Float?         // อัตราดอกเบี้ย (for some types)
+  cycleType       CycleType      @default(MONTHLY)
+  cycleDays       Int            @default(0) // 0 = monthly, >0 = every N days
+  startDate       DateTime
+  status          ShareGroupStatus @default(DRAFT)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  tenant  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  host    User          @relation("HostedGroups", fields: [hostId], references: [id])
+  members GroupMember[]
+  rounds  Round[]
+}
+
+enum ShareGroupType {
+  STEP_INTEREST    // ขั้นบันได
+  BID_INTEREST     // บิทดอกตาม
+  FIXED_INTEREST   // ดอกตาม
+  BID_PRINCIPAL    // บิทลดต้น (หักดอกท้าย)
+  BID_PRINCIPAL_FIRST // บิทลดต้น (หักดอกหน้า)
+}
+
+enum CycleType {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum ShareGroupStatus {
+  DRAFT
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// ==================== Group Member (สมาชิกในวง) ====================
+model GroupMember {
+  id           Int      @id @default(autoincrement())
+  shareGroupId Int
+  userId       Int
+  joinedAt     DateTime @default(now())
+
+  shareGroup ShareGroup @relation(fields: [shareGroupId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rounds     Round[]    @relation("RoundWinner")
+
+  @@unique([shareGroupId, userId])
+}
+
+// ==================== Round (งวด) ====================
+model Round {
+  id            Int         @id @default(autoincrement())
+  shareGroupId  Int
+  roundNumber   Int
+  dueDate       DateTime
+  winnerId      Int?        // GroupMember who won this round
+  winningBid    Float?      // ยอดประมูลที่ชนะ
+  status        RoundStatus @default(PENDING)
+  payoutAmount  Float?      // จำนวนเงินที่ได้รับ
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  shareGroup ShareGroup   @relation(fields: [shareGroupId], references: [id], onDelete: Cascade)
+  winner     GroupMember? @relation("RoundWinner", fields: [winnerId], references: [id])
+  deductions Deduction[]
+
+  @@unique([shareGroupId, roundNumber])
+}
+
+enum RoundStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+// ==================== Deduction (รายการหักรับ) ====================
+model Deduction {
+  id        Int           @id @default(autoincrement())
+  roundId   Int
+  type      DeductionType
+  amount    Float
+  note      String?
+  createdAt DateTime      @default(now())
+
+  round Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+}
+
+enum DeductionType {
+  INTEREST       // ดอกเบี้ย
+  HOST_FEE       // ค่าดูแลวง
+  HOST_DEDUCTION // หักท้ายท้าว
+  OPERATION_FEE  // ค่าดำเนินการ
+  OTHER          // อื่นๆ
+}
