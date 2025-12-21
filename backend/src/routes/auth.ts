@@ -191,6 +191,14 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    // Only ADMIN can login (ลูกแชร์ไม่สามารถ login ได้)
+    if (user.role === 'USER') {
+      return res.status(403).json({
+        success: false,
+        error: 'ลูกแชร์ไม่สามารถเข้าสู่ระบบได้',
+      });
+    }
+
     // Verify password
     const isValidPassword = await comparePassword(data.password, user.password);
 

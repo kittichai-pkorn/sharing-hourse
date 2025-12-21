@@ -70,7 +70,8 @@ model ShareGroup {
   type            ShareGroupType
   maxMembers      Int
   principalAmount Float          // เงินต้นต่องวด
-  interestRate    Float?         // อัตราดอกเบี้ย (for some types)
+  interestRate    Float?         // อัตราดอกเบี้ย/ดอกเบี้ยคงที่ (for some types)
+  managementFee   Float?         // ค่าดูแลวง
   cycleType       CycleType      @default(MONTHLY)
   cycleDays       Int            @default(0) // 0 = monthly, >0 = every N days
   startDate       DateTime
@@ -78,10 +79,22 @@ model ShareGroup {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  tenant  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  host    User          @relation("HostedGroups", fields: [hostId], references: [id])
-  members GroupMember[]
-  rounds  Round[]
+  tenant              Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  host                User                     @relation("HostedGroups", fields: [hostId], references: [id])
+  members             GroupMember[]
+  rounds              Round[]
+  deductionTemplates  GroupDeductionTemplate[]
+}
+
+// ==================== Group Deduction Template (รายการหักรับ template) ====================
+model GroupDeductionTemplate {
+  id           Int      @id @default(autoincrement())
+  shareGroupId Int
+  name         String   // ชื่อรายการ เช่น "ค่าดูแลวง", "หักท้ายท้าว"
+  amount       Float    // จำนวนเงิน
+  createdAt    DateTime @default(now())
+
+  shareGroup ShareGroup @relation(fields: [shareGroupId], references: [id], onDelete: Cascade)
 }
 
 enum ShareGroupType {
@@ -110,14 +123,19 @@ enum ShareGroupStatus {
 model GroupMember {
   id           Int      @id @default(autoincrement())
   shareGroupId Int
-  userId       Int
+  userId       Int?     // Optional: link to User account
+  memberCode   String   // รหัสลูกแชร์ (unique per group)
+  nickname     String   // ชื่อเล่น
+  address      String?  // ที่อยู่ (optional)
+  phone        String?  // เบอร์โทร (optional)
+  lineId       String?  // ไลน์ไอดี (optional)
   joinedAt     DateTime @default(now())
 
   shareGroup ShareGroup @relation(fields: [shareGroupId], references: [id], onDelete: Cascade)
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
   rounds     Round[]    @relation("RoundWinner")
 
-  @@unique([shareGroupId, userId])
+  @@unique([shareGroupId, memberCode])
 }
 
 // ==================== Round (งวด) ====================

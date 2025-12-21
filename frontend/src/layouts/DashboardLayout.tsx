@@ -24,8 +24,9 @@ export default function DashboardLayout() {
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard' },
+    { path: '/share-groups', label: 'วงแชร์' },
+    { path: '/users', label: 'สมาชิก' },
     { path: '/profile', label: 'โปรไฟล์' },
-    ...(user?.role === 'ADMIN' ? [{ path: '/members', label: 'สมาชิก' }] : []),
   ];
 
   if (!isAuthenticated) {
@@ -45,7 +46,7 @@ export default function DashboardLayout() {
                   key={item.path}
                   to={item.path}
                   className={`text-sm ${
-                    location.pathname === item.path
+                    location.pathname === item.path || location.pathname.startsWith(item.path + '/')
                       ? 'text-blue-600 font-medium'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}

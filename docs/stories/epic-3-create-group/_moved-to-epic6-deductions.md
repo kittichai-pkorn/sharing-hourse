@@ -1,11 +1,14 @@
 # Story 3.3: Step 3 - รายการหักรับ
 
+> **⚠️ MOVED:** Story นี้ถูกย้ายไป **Epic 6: หักเงิน** เพราะรายการหักรับจะเกิดตอนที่หักค่าใช้จ่ายจากผู้ชนะ ไม่ใช่ตอนสร้างวง
+
 ## Info
 | Field | Value |
 |-------|-------|
-| Epic | 3. สร้างวงแชร์ |
+| Epic | ~~3. สร้างวงแชร์~~ → **6. หักเงิน** |
 | Priority | P0 |
 | Points | 3 (M) |
+| Status | ⏸️ Moved to Epic 6 |
 
 ---
 
@@ -21,11 +24,11 @@ So that: หักค่าใช้จ่ายจากผู้ชนะ
 
 ## Acceptance Criteria
 
-- [ ] เพิ่มรายการหักรับ (ชื่อ + จำนวน)
-- [ ] ลบรายการหักรับ
-- [ ] แก้ไขรายการหักรับ
-- [ ] แสดงยอดรวมหักรับ
-- [ ] รายการ default: ค่าดูแลวง (จาก step 2)
+- [x] เพิ่มรายการหักรับ (ชื่อ + จำนวน)
+- [x] ลบรายการหักรับ
+- [ ] แก้ไขรายการหักรับ (optional)
+- [x] แสดงยอดรวมหักรับ
+- [ ] รายการ default: ค่าดูแลวง (optional)
 
 ---
 
@@ -38,8 +41,8 @@ So that: หักค่าใช้จ่ายจากผู้ชนะ
 │                                                     │
 │  │ # │ รายการ          │ จำนวน      │        │    │
 │  ├───┼─────────────────┼────────────┼────────┤    │
-│  │ 1 │ ค่าดูแลวง       │ 100 บาท    │ [🗑️]  │    │
-│  │ 2 │ หักท้ายท้าว     │ 200 บาท    │ [🗑️]  │    │
+│  │ 1 │ ค่าดูแลวง       │ 100 บาท    │ [ลบ]  │    │
+│  │ 2 │ หักท้ายท้าว     │ 200 บาท    │ [ลบ]  │    │
 │  └───┴─────────────────┴────────────┴────────┘    │
 │                                                     │
 │  ยอดรวมหักรับ: 300 บาท/งวด                         │
@@ -70,3 +73,30 @@ So that: หักค่าใช้จ่ายจากผู้ชนะ
 │                              [ยกเลิก] [เพิ่ม]      │
 └─────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Schema
+
+```prisma
+model GroupDeductionTemplate {
+  id           Int      @id @default(autoincrement())
+  shareGroupId Int
+  name         String   // ชื่อรายการ
+  amount       Float    // จำนวนเงิน
+  createdAt    DateTime @default(now())
+
+  shareGroup ShareGroup @relation(fields: [shareGroupId], references: [id], onDelete: Cascade)
+}
+```
+
+---
+
+## Files
+
+- `backend/prisma/schema.prisma` - GroupDeductionTemplate model
+- `frontend/src/pages/dashboard/CreateShareGroupPage.tsx` - Step 3 of wizard
+
+---
+
+*v2.0 | Dec 2024*
