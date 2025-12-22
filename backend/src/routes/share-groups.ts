@@ -189,7 +189,7 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const data = createGroupSchema.parse(req.body);
 
-    // Use transaction to create group and deduction templates together
+    // Use transaction to create group, deduction templates, and rounds together
     const group = await prisma.$transaction(async (tx) => {
       // Create the share group
       const newGroup = await tx.shareGroup.create({
@@ -220,6 +220,35 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
         });
       }
 
+      // Generate rounds automatically
+      const rounds = [];
+      let currentDate = new Date(data.startDate);
+      const cycleType = data.cycleType || 'MONTHLY';
+      const cycleDays = data.cycleDays || 0;
+
+      for (let i = 1; i <= data.maxMembers; i++) {
+        rounds.push({
+          shareGroupId: newGroup.id,
+          roundNumber: i,
+          dueDate: new Date(currentDate),
+          status: 'PENDING' as const,
+        });
+
+        // Calculate next due date based on cycle type
+        if (cycleType === 'DAILY') {
+          currentDate.setDate(currentDate.getDate() + (cycleDays || 1));
+        } else if (cycleType === 'WEEKLY') {
+          currentDate.setDate(currentDate.getDate() + 7);
+        } else {
+          // MONTHLY
+          currentDate.setMonth(currentDate.getMonth() + 1);
+        }
+      }
+
+      await tx.round.createMany({
+        data: rounds,
+      });
+
       // Return group with relations
       return tx.shareGroup.findUnique({
         where: { id: newGroup.id },
@@ -232,6 +261,9 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
             },
           },
           deductionTemplates: true,
+          rounds: {
+            orderBy: { roundNumber: 'asc' },
+          },
         },
       });
     });

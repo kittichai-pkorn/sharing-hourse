@@ -129,6 +129,62 @@ router.get('/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// PUT /api/rounds/:id - Update round (scheduledDate)
+router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { dueDate } = req.body;
+
+    if (!dueDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'กรุณาระบุวันที่',
+      });
+    }
+
+    const round = await prisma.round.findFirst({
+      where: { id: parseInt(id) },
+      include: {
+        shareGroup: true,
+      },
+    });
+
+    if (!round || round.shareGroup.tenantId !== req.user!.tenantId) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบงวด',
+      });
+    }
+
+    // Only allow editing if round is not completed
+    if (round.status === 'COMPLETED') {
+      return res.status(400).json({
+        success: false,
+        error: 'ไม่สามารถแก้ไขงวดที่เสร็จสิ้นแล้ว',
+      });
+    }
+
+    const updatedRound = await prisma.round.update({
+      where: { id: parseInt(id) },
+      data: {
+        dueDate: new Date(dueDate),
+      },
+    });
+
+    res.json({
+      success: true,
+      data: updatedRound,
+      message: 'แก้ไขวันที่งวดเรียบร้อยแล้ว',
+    });
+  } catch (error) {
+    console.error('Update round error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
 // POST /api/rounds/:id/winner - Record winner for a round
 router.post('/:id/winner', authMiddleware, adminMiddleware, async (req, res) => {
   try {
