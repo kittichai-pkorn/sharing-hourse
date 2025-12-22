@@ -110,10 +110,8 @@
 
 ## Next Sprint
 
-- [ ] Epic 3: สร้างวงแชร์ (เพิ่มเติม settings)
-- [ ] Epic 5: จัดการงวด
-- [ ] Epic 6: หักเงิน
+→ [Sprint 3: Epic 3 - สร้างวงแชร์](./sprint-3.md)
 
 ---
 
-*Last updated: Dec 21, 2024*
+*Last updated: Dec 22, 2024*

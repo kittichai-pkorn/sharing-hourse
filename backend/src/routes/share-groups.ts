@@ -73,7 +73,7 @@ router.get('/', authMiddleware, async (req, res) => {
     const groupsWithProgress = groups.map(group => {
       const totalRounds = group.maxMembers;
       const completedRounds = group.rounds.filter(r => r.status === 'COMPLETED').length;
-      const currentRound = group.rounds.find(r => r.status !== 'COMPLETED' && r.status !== 'CANCELLED');
+      const currentRound = group.rounds.find(r => r.status !== 'COMPLETED' && r.status !== 'SKIPPED');
 
       return {
         ...group,
@@ -126,7 +126,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
                 lastName: true,
               },
             },
-            wonRounds: {
+            rounds: {
               select: {
                 id: true,
                 roundNumber: true,
@@ -154,8 +154,8 @@ router.get('/:id', authMiddleware, async (req, res) => {
     // Add hasWon flag to each member
     const membersWithStatus = group.members.map(member => ({
       ...member,
-      hasWon: member.wonRounds.length > 0,
-      wonRoundNumber: member.wonRounds[0]?.roundNumber || null,
+      hasWon: member.rounds.length > 0,
+      wonRoundNumber: member.rounds[0]?.roundNumber || null,
     }));
 
     // Calculate summary

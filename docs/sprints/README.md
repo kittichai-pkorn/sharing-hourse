@@ -18,6 +18,8 @@
 |--------|--------|------|----------|
 | [Sprint 1](./sprint-1.md) | Dec 2024 | Epic 1: Authentication | ✅ 100% |
 | [Sprint 2](./sprint-2.md) | Dec 2024 | Epic 2 & 4: Dashboard & Members | ✅ 100% |
+| [Sprint 3](./sprint-3.md) | Dec 2024 | Epic 3: สร้างวงแชร์ | ✅ 100% |
+| [Sprint 4](./sprint-4.md) | Dec 2024 | Epic 5: จัดการงวด | ✅ 100% |
 
 ---
 

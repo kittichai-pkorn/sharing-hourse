@@ -1,0 +1,358 @@
+import { Router } from 'express';
+import prisma from '../utils/prisma.js';
+import { authMiddleware, adminMiddleware } from '../middlewares/auth.js';
+
+const router = Router();
+
+// GET /api/rounds/group/:groupId - Get all rounds for a share group
+router.get('/group/:groupId', authMiddleware, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    // Verify the group belongs to user's tenant
+    const shareGroup = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(groupId),
+        tenantId: req.user!.tenantId,
+      },
+    });
+
+    if (!shareGroup) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    const rounds = await prisma.round.findMany({
+      where: { shareGroupId: parseInt(groupId) },
+      include: {
+        winner: {
+          select: {
+            id: true,
+            memberCode: true,
+            nickname: true,
+          },
+        },
+      },
+      orderBy: { roundNumber: 'asc' },
+    });
+
+    res.json({
+      success: true,
+      data: rounds,
+    });
+  } catch (error) {
+    console.error('Get rounds error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// GET /api/rounds/:id - Get single round detail
+router.get('/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const round = await prisma.round.findFirst({
+      where: { id: parseInt(id) },
+      include: {
+        shareGroup: {
+          include: {
+            host: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+            members: {
+              include: {
+                rounds: {
+                  select: { id: true },
+                },
+              },
+              orderBy: { memberCode: 'asc' },
+            },
+          },
+        },
+        winner: {
+          select: {
+            id: true,
+            memberCode: true,
+            nickname: true,
+            userId: true,
+          },
+        },
+        deductions: {
+          orderBy: { id: 'asc' },
+        },
+      },
+    });
+
+    if (!round || round.shareGroup.tenantId !== req.user!.tenantId) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบงวด',
+      });
+    }
+
+    // Get members who haven't won yet
+    const availableMembers = round.shareGroup.members.filter(m => m.rounds.length === 0);
+
+    // Find host member
+    const hostMember = round.shareGroup.members.find(m => m.userId === round.shareGroup.hostId);
+
+    // Calculate totals
+    const totalPool = round.shareGroup.principalAmount * round.shareGroup.maxMembers;
+    const totalDeductions = round.deductions.reduce((sum, d) => sum + d.amount, 0);
+
+    res.json({
+      success: true,
+      data: {
+        ...round,
+        availableMembers,
+        hostMember,
+        totalPool,
+        totalDeductions,
+        netPayout: round.payoutAmount || (totalPool - (round.winningBid || 0) - totalDeductions),
+      },
+    });
+  } catch (error) {
+    console.error('Get round error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// POST /api/rounds/:id/winner - Record winner for a round
+router.post('/:id/winner', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { memberId, interest } = req.body;
+
+    // Validate input
+    if (!memberId) {
+      return res.status(400).json({
+        success: false,
+        error: 'กรุณาเลือกผู้ชนะ',
+      });
+    }
+
+    const round = await prisma.round.findFirst({
+      where: { id: parseInt(id) },
+      include: {
+        shareGroup: {
+          include: {
+            members: {
+              include: {
+                rounds: true,
+              },
+            },
+            deductionTemplates: true,
+          },
+        },
+      },
+    });
+
+    if (!round || round.shareGroup.tenantId !== req.user!.tenantId) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบงวด',
+      });
+    }
+
+    if (round.winnerId) {
+      return res.status(400).json({
+        success: false,
+        error: 'งวดนี้มีผู้ชนะแล้ว',
+      });
+    }
+
+    // Verify member hasn't won yet
+    const member = round.shareGroup.members.find(m => m.id === memberId);
+    if (!member) {
+      return res.status(400).json({
+        success: false,
+        error: 'ไม่พบสมาชิก',
+      });
+    }
+
+    if (member.rounds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'สมาชิกนี้เปียแล้ว',
+      });
+    }
+
+    // Calculate payout
+    const totalPool = round.shareGroup.principalAmount * round.shareGroup.maxMembers;
+    const interestAmount = interest || 0;
+
+    // Get deduction templates total
+    const templateDeductions = round.shareGroup.deductionTemplates.reduce((sum, d) => sum + d.amount, 0);
+
+    const payoutAmount = totalPool - interestAmount - templateDeductions;
+
+    // Use transaction to update round and create deductions
+    const updatedRound = await prisma.$transaction(async (tx) => {
+      // Create deductions from templates
+      if (round.shareGroup.deductionTemplates.length > 0) {
+        await tx.deduction.createMany({
+          data: round.shareGroup.deductionTemplates.map(template => ({
+            roundId: round.id,
+            type: 'OTHER',
+            amount: template.amount,
+            note: template.name,
+          })),
+        });
+      }
+
+      // Add interest as deduction if present
+      if (interestAmount > 0) {
+        await tx.deduction.create({
+          data: {
+            roundId: round.id,
+            type: 'INTEREST',
+            amount: interestAmount,
+            note: 'ดอกเบี้ย',
+          },
+        });
+      }
+
+      // Update round
+      const updated = await tx.round.update({
+        where: { id: round.id },
+        data: {
+          winnerId: memberId,
+          winningBid: interestAmount,
+          payoutAmount,
+          status: 'COMPLETED',
+        },
+        include: {
+          winner: {
+            select: {
+              id: true,
+              memberCode: true,
+              nickname: true,
+            },
+          },
+          deductions: true,
+        },
+      });
+
+      // Check if this is the last round
+      const remainingRounds = await tx.round.count({
+        where: {
+          shareGroupId: round.shareGroupId,
+          status: { not: 'COMPLETED' },
+        },
+      });
+
+      // If no remaining rounds, mark group as completed
+      if (remainingRounds === 0) {
+        await tx.shareGroup.update({
+          where: { id: round.shareGroupId },
+          data: { status: 'COMPLETED' },
+        });
+      }
+
+      return updated;
+    });
+
+    res.json({
+      success: true,
+      data: updatedRound,
+      message: 'บันทึกผู้ชนะเรียบร้อยแล้ว',
+    });
+  } catch (error) {
+    console.error('Record winner error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// POST /api/rounds/generate/:groupId - Generate rounds for a share group
+router.post('/generate/:groupId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    const shareGroup = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(groupId),
+        tenantId: req.user!.tenantId,
+      },
+    });
+
+    if (!shareGroup) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    // Check if rounds already exist
+    const existingRounds = await prisma.round.count({
+      where: { shareGroupId: parseInt(groupId) },
+    });
+
+    if (existingRounds > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'วงนี้มีงวดแล้ว',
+      });
+    }
+
+    // Generate rounds based on maxMembers
+    const rounds = [];
+    let currentDate = new Date(shareGroup.startDate);
+
+    for (let i = 1; i <= shareGroup.maxMembers; i++) {
+      rounds.push({
+        shareGroupId: shareGroup.id,
+        roundNumber: i,
+        dueDate: new Date(currentDate),
+        status: 'PENDING' as const,
+      });
+
+      // Calculate next due date based on cycle type
+      if (shareGroup.cycleType === 'DAILY') {
+        currentDate.setDate(currentDate.getDate() + (shareGroup.cycleDays || 1));
+      } else if (shareGroup.cycleType === 'WEEKLY') {
+        currentDate.setDate(currentDate.getDate() + 7);
+      } else {
+        // MONTHLY
+        currentDate.setMonth(currentDate.getMonth() + 1);
+      }
+    }
+
+    await prisma.round.createMany({
+      data: rounds,
+    });
+
+    const createdRounds = await prisma.round.findMany({
+      where: { shareGroupId: parseInt(groupId) },
+      orderBy: { roundNumber: 'asc' },
+    });
+
+    res.status(201).json({
+      success: true,
+      data: createdRounds,
+      message: `สร้าง ${createdRounds.length} งวดเรียบร้อยแล้ว`,
+    });
+  } catch (error) {
+    console.error('Generate rounds error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+export default router;

@@ -6,6 +6,7 @@ import usersRoutes from './routes/users.js';
 import shareGroupsRoutes from './routes/share-groups.js';
 import membersRoutes from './routes/members.js';
 import dashboardRoutes from './routes/dashboard.js';
+import roundsRoutes from './routes/rounds.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -21,6 +22,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/share-groups', shareGroupsRoutes);
 app.use('/api/members', membersRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/rounds', roundsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

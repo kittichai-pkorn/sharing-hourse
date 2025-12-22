@@ -40,7 +40,8 @@
 | กรอกจำนวนสมาชิก (min 2) | ✅ |
 | กรอกเงินต้นต่องวด | ✅ |
 | แสดงเงินกองกลาง (real-time) | ✅ |
-| เลือกรอบชำระ | ✅ |
+| เลือกรอบชำระ (วัน/สัปดาห์/เดือน) | ✅ |
+| กรอกระยะห่างงวด (เมื่อเลือกรายวัน) | ✅ |
 | เลือกวันที่เริ่มต้น | ✅ |
 | กรอกค่าดูแลวง (optional) | ✅ |
 | กรอกดอกเบี้ยคงที่ (optional) | ✅ |
@@ -65,9 +66,16 @@
 ```prisma
 model ShareGroup {
   // ... existing fields
-  managementFee   Float?  // ค่าดูแลวง (NEW)
+  cycleType       CycleType  // DAILY, WEEKLY, MONTHLY
+  cycleDays       Int        // จำนวนวัน (ใช้เมื่อ cycleType = DAILY)
+  managementFee   Float?     // ค่าดูแลวง (NEW)
 }
 ```
+
+**cycleDays logic:**
+- DAILY: ใช้ค่า cycleDays (เช่น 3 = ทุก 3 วัน)
+- WEEKLY: cycleDays = 7 (อัตโนมัติ)
+- MONTHLY: cycleDays = 0 (ใช้วันที่เดียวกันของเดือน)
 
 > **Note:** GroupDeductionTemplate model จะถูกเพิ่มใน Epic 6: หักเงิน
 
@@ -95,9 +103,7 @@ model ShareGroup {
 
 ## Next Sprint
 
-- [ ] Epic 5: จัดการงวด
-- [ ] Epic 6: หักเงิน
-- [ ] Epic 7: เปิด/ปิดวง
+→ [Sprint 4: Epic 5 - จัดการงวด](./sprint-4.md)
 
 ---
 

@@ -9,17 +9,24 @@ router.get('/summary', authMiddleware, async (req, res) => {
   try {
     const tenantId = req.user!.tenantId;
 
-    // Get all groups for this tenant
+    // Get all groups for this tenant with counts
     const groups = await prisma.shareGroup.findMany({
       where: { tenantId },
-      include: {
-        rounds: {
-          where: {
-            status: {
-              in: ['PENDING', 'ACTIVE', 'BIDDING'],
-            },
-          },
-        },
+    });
+
+    // Get pending rounds count
+    const pendingRoundsCount = await prisma.round.count({
+      where: {
+        shareGroup: { tenantId },
+        status: 'PENDING',
+      },
+    });
+
+    // Get in-progress rounds count
+    const inProgressRoundsCount = await prisma.round.count({
+      where: {
+        shareGroup: { tenantId },
+        status: 'IN_PROGRESS',
       },
     });
 
@@ -27,15 +34,11 @@ router.get('/summary', authMiddleware, async (req, res) => {
     const totalGroups = groups.length;
     const inProgressGroups = groups.filter(g => g.status === 'IN_PROGRESS' || g.status === 'OPEN').length;
 
-    // Count pending rounds (rounds that need action)
-    const pendingRounds = groups.reduce((acc, group) => {
-      return acc + group.rounds.filter(r => r.status === 'PENDING' || r.status === 'ACTIVE').length;
-    }, 0);
+    // Pending rounds are those that need action
+    const pendingRounds = pendingRoundsCount + inProgressRoundsCount;
 
-    // Count rounds waiting for collection (bidding completed, need to collect money)
-    const waitingCollection = groups.reduce((acc, group) => {
-      return acc + group.rounds.filter(r => r.status === 'BIDDING').length;
-    }, 0);
+    // Waiting collection is for rounds in progress (bidding phase)
+    const waitingCollection = inProgressRoundsCount;
 
     res.json({
       success: true,
