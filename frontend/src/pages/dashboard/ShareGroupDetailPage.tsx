@@ -191,6 +191,9 @@ export default function ShareGroupDetailPage() {
   const [editInterestValue, setEditInterestValue] = useState<string>('');
   const [savingInterest, setSavingInterest] = useState(false);
 
+  // Modal interest editing state (for BID_INTEREST type)
+  const [modalInterestValue, setModalInterestValue] = useState<string>('');
+
   // Auto-dismiss messages
   useEffect(() => {
     if (message) {
@@ -436,6 +439,8 @@ export default function ShareGroupDetailPage() {
     setError('');
     setRoundModalTab('deductions');
     setRoundPaymentsData(null);
+    // Initialize modal interest value for BID_INTEREST type
+    setModalInterestValue(round.winningBid?.toString() || '');
     try {
       const response = await api.get(`/deductions/round/${round.id}`);
       const savedDeductions = response.data.data || [];
@@ -550,9 +555,21 @@ export default function ShareGroupDetailPage() {
     if (!selectedRoundForDeduction) return;
 
     try {
+      // Save deductions
       await api.post(`/deductions/round/${selectedRoundForDeduction.id}`, {
         deductions: roundDeductionItems.filter(d => d.name && d.amount > 0),
       });
+
+      // For BID_INTEREST type, also save the interest
+      if (group?.type === 'BID_INTEREST') {
+        const interestValue = parseFloat(modalInterestValue) || 0;
+        if (interestValue >= 0) {
+          await api.put(`/rounds/${selectedRoundForDeduction.id}`, {
+            interest: interestValue,
+          });
+        }
+      }
+
       setMessage('บันทึกรายการหักรับเรียบร้อยแล้ว');
       setShowRoundDeductionModal(false);
       setSelectedRoundForDeduction(null);
@@ -1808,14 +1825,32 @@ export default function ShareGroupDetailPage() {
                     )}
                   </div>
 
-                  {selectedRoundForDeduction.winningBid !== null && selectedRoundForDeduction.winningBid > 0 && (
+                  {/* Interest section - editable for BID_INTEREST type */}
+                  {group?.type === 'BID_INTEREST' ? (
+                    <div className="p-4 bg-yellow-50 rounded-xl">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-yellow-700">ดอกเบี้ย (ประมูล)</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min={0}
+                            value={modalInterestValue}
+                            onChange={(e) => setModalInterestValue(e.target.value)}
+                            placeholder="0"
+                            className="w-24 px-3 py-1.5 text-sm text-right border border-yellow-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 bg-white"
+                          />
+                          <span className="text-sm text-yellow-700">บาท</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : selectedRoundForDeduction.winningBid !== null && selectedRoundForDeduction.winningBid > 0 ? (
                     <div className="flex justify-between items-center p-4 bg-yellow-50 rounded-xl">
                       <span className="text-sm font-medium text-yellow-700">ดอกเบี้ย</span>
                       <span className="text-sm text-red-600 font-bold">
                         {selectedRoundForDeduction.winningBid.toLocaleString()} บาท
                       </span>
                     </div>
-                  )}
+                  ) : null}
 
                   <div>
                     <div className="flex justify-between items-center mb-3">
@@ -1866,26 +1901,37 @@ export default function ShareGroupDetailPage() {
                     </div>
                   </div>
 
-                  <div className="bg-blue-50 rounded-xl p-4 space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-blue-600">รวมหักรับ:</span>
-                      <span className="font-bold text-red-600">
-                        {((selectedRoundForDeduction.winningBid || 0) + roundDeductionItems.reduce((sum, d) => sum + (d.amount || 0), 0)).toLocaleString()} บาท
-                      </span>
-                    </div>
-                    <div className="border-t border-blue-200 pt-3">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-blue-600">เงินกองกลาง:</span>
-                        <span className="font-medium">{((group?.principalAmount || 0) * (group?.maxMembers || 0)).toLocaleString()} บาท</span>
+                  {(() => {
+                    // Calculate interest based on type
+                    const interestAmount = group?.type === 'BID_INTEREST'
+                      ? (parseFloat(modalInterestValue) || 0)
+                      : (selectedRoundForDeduction.winningBid || 0);
+                    const deductionsTotal = roundDeductionItems.reduce((sum, d) => sum + (d.amount || 0), 0);
+                    const totalPool = (group?.principalAmount || 0) * (group?.maxMembers || 0);
+
+                    return (
+                      <div className="bg-blue-50 rounded-xl p-4 space-y-3">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-blue-600">รวมหักรับ:</span>
+                          <span className="font-bold text-red-600">
+                            {(interestAmount + deductionsTotal).toLocaleString()} บาท
+                          </span>
+                        </div>
+                        <div className="border-t border-blue-200 pt-3">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-blue-600">เงินกองกลาง:</span>
+                            <span className="font-medium">{totalPool.toLocaleString()} บาท</span>
+                          </div>
+                          <div className="flex justify-between text-sm mt-2">
+                            <span className="text-green-600 font-medium">ผู้ชนะได้รับ:</span>
+                            <span className="font-bold text-green-600 text-lg">
+                              {(totalPool - interestAmount - deductionsTotal).toLocaleString()} บาท
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex justify-between text-sm mt-2">
-                        <span className="text-green-600 font-medium">ผู้ชนะได้รับ:</span>
-                        <span className="font-bold text-green-600 text-lg">
-                          {((group?.principalAmount || 0) * (group?.maxMembers || 0) - (selectedRoundForDeduction.winningBid || 0) - roundDeductionItems.reduce((sum, d) => sum + (d.amount || 0), 0)).toLocaleString()} บาท
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div className="space-y-4">
