@@ -49,6 +49,7 @@ interface ShareGroup {
   startDate: string;
   hostId: number;
   managementFee: number | null;
+  interestRate: number | null;
   members: Member[];
   deductionTemplates: DeductionTemplate[];
   summary: {
@@ -152,35 +153,90 @@ export default function ShareGroupDetailPage() {
     setError('');
     try {
       const response = await api.get(`/deductions/round/${round.id}`);
-      const deductions = response.data.data || [];
-      if (deductions.length > 0) {
-        // Use saved deductions
-        setRoundDeductionItems(deductions.map((d: any) => ({
-          id: d.id,
-          name: d.note || d.type,
-          amount: d.amount,
-        })));
+      const savedDeductions = response.data.data || [];
+
+      // Always start with auto-fill items (pass round for interest calculation)
+      const autoItems = buildAutoDeductionItems(round);
+
+      if (savedDeductions.length > 0) {
+        // Merge: use saved values for matching names, keep auto-fill for new items
+        const savedMap = new Map(savedDeductions.map((d: any) => [d.note || d.type, d]));
+        const mergedItems: { id?: number; name: string; amount: number }[] = [];
+
+        // First, add auto-fill items (with saved values if exists)
+        autoItems.forEach(auto => {
+          const saved = savedMap.get(auto.name);
+          if (saved) {
+            mergedItems.push({ id: saved.id, name: auto.name, amount: saved.amount });
+            savedMap.delete(auto.name); // Remove from map to avoid duplicate
+          } else {
+            mergedItems.push({ name: auto.name, amount: auto.amount });
+          }
+        });
+
+        // Then, add any additional saved items not in auto-fill
+        savedMap.forEach((saved: any) => {
+          mergedItems.push({ id: saved.id, name: saved.note || saved.type, amount: saved.amount });
+        });
+
+        setRoundDeductionItems(mergedItems);
       } else {
-        // Auto-fill from template and managementFee
-        const autoItems = buildAutoDeductionItems();
+        // No saved deductions, use auto-fill
         setRoundDeductionItems(autoItems);
       }
       setShowRoundDeductionModal(true);
     } catch (err) {
       // If error, auto-fill from template and managementFee
-      const autoItems = buildAutoDeductionItems();
+      const autoItems = buildAutoDeductionItems(round);
       setRoundDeductionItems(autoItems);
       setShowRoundDeductionModal(true);
     }
   };
 
   // Build auto-fill deduction items based on group settings
-  const buildAutoDeductionItems = () => {
+  const buildAutoDeductionItems = (round?: Round) => {
     const items: { name: string; amount: number }[] = [];
+    const currentRound = round || selectedRoundForDeduction;
 
     // Add management fee if exists
     if (group?.managementFee && group.managementFee > 0) {
       items.push({ name: 'ค่าดูแลวง', amount: group.managementFee });
+    }
+
+    // Add interest based on group type (skip round 1 for host)
+    if (currentRound && currentRound.roundNumber > 1) {
+      let interestAmount = 0;
+      let interestNote = 'ดอกเบี้ย';
+
+      switch (group?.type) {
+        case 'STEP_INTEREST':
+          // ดอกขั้นบันได = interestRate × งวดที่
+          if (group.interestRate) {
+            interestAmount = group.interestRate * currentRound.roundNumber;
+            interestNote = `ดอกเบี้ย (${group.interestRate}×${currentRound.roundNumber})`;
+          }
+          break;
+        case 'FIXED_INTEREST':
+          // ดอกคงที่ = interestRate
+          if (group.interestRate) {
+            interestAmount = group.interestRate;
+            interestNote = 'ดอกเบี้ยคงที่';
+          }
+          break;
+        case 'BID_INTEREST':
+        case 'BID_PRINCIPAL':
+        case 'BID_PRINCIPAL_FIRST':
+          // ดอกประมูล = winningBid
+          if (currentRound.winningBid && currentRound.winningBid > 0) {
+            interestAmount = currentRound.winningBid;
+            interestNote = 'ดอกประมูล';
+          }
+          break;
+      }
+
+      if (interestAmount > 0) {
+        items.push({ name: interestNote, amount: interestAmount });
+      }
     }
 
     // Add template items
