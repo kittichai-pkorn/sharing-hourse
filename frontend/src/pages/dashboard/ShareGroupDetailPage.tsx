@@ -1943,31 +1943,43 @@ export default function ShareGroupDetailPage() {
                     <div className="text-center py-12 text-gray-500">ไม่สามารถโหลดข้อมูลได้</div>
                   ) : (
                     <>
-                      {/* First Round Special Banner - Host receives money */}
-                      {selectedRoundForDeduction.roundNumber === 1 && (
-                        <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl p-4 border border-yellow-200">
-                          <div className="flex items-center gap-3 mb-2">
-                            <div className="w-10 h-10 rounded-full bg-yellow-400 flex items-center justify-center">
-                              <span className="text-xl">🎉</span>
-                            </div>
-                            <div>
-                              <div className="font-semibold text-yellow-800">งวดแรก - ท้าวได้รับเงิน</div>
-                              <div className="text-sm text-yellow-700">
-                                {roundPaymentsData.payments.find(p => p.isHost)?.nickname || 'ท้าว'} (ท้าว)
+                      {/* Winner Banner - Shows who receives money this round */}
+                      {(() => {
+                        const winner = roundPaymentsData.payments.find(p => p.isWinner);
+                        if (!winner) return null;
+
+                        const isFirstRound = selectedRoundForDeduction.roundNumber === 1;
+                        const totalPool = (group?.principalAmount || 0) * (group?.maxMembers || 0);
+
+                        return (
+                          <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl p-4 border border-yellow-200">
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="w-10 h-10 rounded-full bg-yellow-400 flex items-center justify-center">
+                                <span className="text-xl">🎉</span>
+                              </div>
+                              <div>
+                                <div className="font-semibold text-yellow-800">
+                                  {isFirstRound ? 'งวดแรก - ท้าวได้รับเงิน' : 'ผู้เปียงวดนี้'}
+                                </div>
+                                <div className="text-sm text-yellow-700">
+                                  {winner.isHost && <span className="mr-1">👑</span>}
+                                  {winner.nickname}
+                                  {winner.isHost && ' (ท้าว)'}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                          <div className="mt-3 p-3 bg-white/60 rounded-lg">
-                            <div className="flex justify-between items-center">
-                              <span className="text-sm text-yellow-700">ได้รับเงิน:</span>
-                              <span className="font-bold text-lg text-green-600">
-                                {((group?.principalAmount || 0) * (group?.maxMembers || 0)).toLocaleString()} บาท
-                              </span>
+                            <div className="mt-3 p-3 bg-white/60 rounded-lg">
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm text-yellow-700">ได้รับเงิน:</span>
+                                <span className="font-bold text-lg text-green-600">
+                                  {totalPool.toLocaleString()} บาท
+                                </span>
+                              </div>
+                              <div className="text-xs text-yellow-600 mt-1">(ไม่ต้องชำระเงินในงวดนี้)</div>
                             </div>
-                            <div className="text-xs text-yellow-600 mt-1">(ไม่ต้องชำระเงินในงวดนี้)</div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       {/* Payment Summary */}
                       <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-4">
@@ -1991,49 +2003,35 @@ export default function ShareGroupDetailPage() {
                         </div>
                       </div>
 
-                      {/* Payment List */}
+                      {/* Payment List - excludes winner (they receive money, don't pay) */}
                       <div className="space-y-2">
                         {roundPaymentsData.payments
-                          .filter(payment => {
-                            // For round 1, don't show host in payment list (host receives, doesn't pay)
-                            if (selectedRoundForDeduction.roundNumber === 1 && payment.isHost) {
-                              return false;
-                            }
-                            return true;
-                          })
+                          .filter(payment => !payment.isWinner) // Winner doesn't pay, only receives
                           .map((payment) => (
                           <div
                             key={payment.groupMemberId}
                             className={`p-4 rounded-xl border transition-all ${
-                              payment.isWinner
-                                ? 'bg-yellow-50 border-yellow-200'
-                                : localPayments[payment.groupMemberId]
+                              localPayments[payment.groupMemberId]
                                 ? 'bg-green-50 border-green-200'
                                 : 'bg-gray-50 border-gray-200'
                             }`}
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-3">
-                                {payment.isWinner ? (
-                                  <div className="w-8 h-8 rounded-full bg-yellow-400 flex items-center justify-center">
-                                    <span className="text-lg">🎉</span>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => handlePaymentToggle(payment.groupMemberId)}
-                                    className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all ${
-                                      localPayments[payment.groupMemberId]
-                                        ? 'bg-green-500 border-green-500 text-white'
-                                        : 'border-gray-300 hover:border-gray-400'
-                                    }`}
-                                  >
-                                    {localPayments[payment.groupMemberId] && (
-                                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                      </svg>
-                                    )}
-                                  </button>
-                                )}
+                                <button
+                                  onClick={() => handlePaymentToggle(payment.groupMemberId)}
+                                  className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all ${
+                                    localPayments[payment.groupMemberId]
+                                      ? 'bg-green-500 border-green-500 text-white'
+                                      : 'border-gray-300 hover:border-gray-400'
+                                  }`}
+                                >
+                                  {localPayments[payment.groupMemberId] && (
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  )}
+                                </button>
                                 <div>
                                   <div className="flex items-center gap-2">
                                     {payment.isHost && <span className="text-xs">👑</span>}
@@ -2042,9 +2040,7 @@ export default function ShareGroupDetailPage() {
                                       <span className="text-xs text-gray-400">({payment.memberCode})</span>
                                     )}
                                   </div>
-                                  {payment.isWinner ? (
-                                    <div className="text-xs text-yellow-600 mt-0.5">เปียงวดนี้</div>
-                                  ) : payment.paidAt ? (
+                                  {payment.paidAt ? (
                                     <div className="text-xs text-green-600 mt-0.5">
                                       ชำระเมื่อ {new Date(payment.paidAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
                                     </div>
@@ -2054,9 +2050,7 @@ export default function ShareGroupDetailPage() {
                                 </div>
                               </div>
                               <div className="text-right">
-                                {!payment.isWinner && (
-                                  <div className="font-medium">{payment.amount.toLocaleString()} บาท</div>
-                                )}
+                                <div className="font-medium">{payment.amount.toLocaleString()} บาท</div>
                               </div>
                             </div>
                           </div>
