@@ -60,12 +60,41 @@ interface ShareGroup {
   };
 }
 
+interface SummaryRound {
+  roundNumber: number;
+  dueDate: string;
+  status: string;
+  winnerName?: string;
+  interest: number;
+  deductions: number;
+  payout: number;
+}
+
+interface MemberHistory {
+  id: number;
+  order: number;
+  name: string;
+  isHost: boolean;
+  hasWon: boolean;
+  roundNumber?: number;
+  interest: number;
+  payout: number;
+}
+
 const typeLabels: Record<string, string> = {
   STEP_INTEREST: 'ขั้นบันได',
   BID_INTEREST: 'บิทดอกตาม',
   FIXED_INTEREST: 'ดอกตาม',
   BID_PRINCIPAL: 'บิทลดต้น (หักดอกท้าย)',
   BID_PRINCIPAL_FIRST: 'บิทลดต้น (หักดอกหน้า)',
+};
+
+const typeColors: Record<string, string> = {
+  STEP_INTEREST: 'bg-purple-100 text-purple-700',
+  BID_INTEREST: 'bg-orange-100 text-orange-700',
+  FIXED_INTEREST: 'bg-blue-100 text-blue-700',
+  BID_PRINCIPAL: 'bg-teal-100 text-teal-700',
+  BID_PRINCIPAL_FIRST: 'bg-cyan-100 text-cyan-700',
 };
 
 export default function ShareGroupDetailPage() {
@@ -103,14 +132,52 @@ export default function ShareGroupDetailPage() {
   const [cancelReason, setCancelReason] = useState('');
 
   // Summary/Report states
-  const [summaryData, setSummaryData] = useState<any>(null);
-  const [memberHistoryData, setMemberHistoryData] = useState<any>(null);
+  const [summaryData, setSummaryData] = useState<{
+    financial: {
+      principalPerRound: number;
+      poolPerRound: number;
+      totalPool: number;
+      completedRounds: number;
+      totalRounds: number;
+      totalInterest: number;
+      totalDeductions: number;
+      totalPayout: number;
+    };
+    rounds: SummaryRound[];
+  } | null>(null);
+  const [memberHistoryData, setMemberHistoryData] = useState<{
+    stats: {
+      wonCount: number;
+      totalMembers: number;
+      minInterest: number;
+      maxInterest: number;
+      avgInterest: number;
+      minInterestMember: string;
+      maxInterestMember: string;
+    };
+    members: MemberHistory[];
+  } | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
 
   // Round Deductions Modal states
   const [showRoundDeductionModal, setShowRoundDeductionModal] = useState(false);
   const [selectedRoundForDeduction, setSelectedRoundForDeduction] = useState<Round | null>(null);
   const [roundDeductionItems, setRoundDeductionItems] = useState<{ id?: number; name: string; amount: number }[]>([]);
+
+  // Auto-dismiss messages
+  useEffect(() => {
+    if (message) {
+      const timer = setTimeout(() => setMessage(''), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [message]);
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   const fetchGroup = async () => {
     try {
@@ -155,80 +222,67 @@ export default function ShareGroupDetailPage() {
       const response = await api.get(`/deductions/round/${round.id}`);
       const savedDeductions = response.data.data || [];
 
-      // Always start with auto-fill items (pass round for interest calculation)
       const autoItems = buildAutoDeductionItems(round);
 
       if (savedDeductions.length > 0) {
-        // Merge: use saved values for matching names, keep auto-fill for new items
-        const savedMap = new Map(savedDeductions.map((d: any) => [d.note || d.type, d]));
+        const savedMap = new Map(savedDeductions.map((d: { id: number; note?: string; type: string; amount: number }) => [d.note || d.type, d]));
         const mergedItems: { id?: number; name: string; amount: number }[] = [];
 
-        // First, add auto-fill items (with saved values if exists)
         autoItems.forEach(auto => {
-          const saved = savedMap.get(auto.name);
+          const saved = savedMap.get(auto.name) as { id: number; amount: number } | undefined;
           if (saved) {
             mergedItems.push({ id: saved.id, name: auto.name, amount: saved.amount });
-            savedMap.delete(auto.name); // Remove from map to avoid duplicate
+            savedMap.delete(auto.name);
           } else {
             mergedItems.push({ name: auto.name, amount: auto.amount });
           }
         });
 
-        // Then, add any additional saved items not in auto-fill
-        savedMap.forEach((saved: any) => {
-          mergedItems.push({ id: saved.id, name: saved.note || saved.type, amount: saved.amount });
+        savedMap.forEach((saved) => {
+          const s = saved as { id: number; note?: string; type: string; amount: number };
+          mergedItems.push({ id: s.id, name: s.note || s.type, amount: s.amount });
         });
 
         setRoundDeductionItems(mergedItems);
       } else {
-        // No saved deductions, use auto-fill
         setRoundDeductionItems(autoItems);
       }
       setShowRoundDeductionModal(true);
-    } catch (err) {
-      // If error, auto-fill from template and managementFee
+    } catch {
       const autoItems = buildAutoDeductionItems(round);
       setRoundDeductionItems(autoItems);
       setShowRoundDeductionModal(true);
     }
   };
 
-  // Build auto-fill deduction items based on group settings
-  // Always show ค่าดูแลวง and ดอกเบี้ย (even if 0)
   const buildAutoDeductionItems = (round?: Round) => {
     const items: { name: string; amount: number }[] = [];
     const currentRound = round || selectedRoundForDeduction;
 
-    // 1. ค่าดูแลวง - แสดงเสมอ (ถ้าไม่มี = 0)
     items.push({
       name: 'ค่าดูแลวง',
       amount: group?.managementFee || 0
     });
 
-    // 2. ดอกเบี้ย - แสดงเสมอ (คำนวณตามประเภทวง)
     let interestAmount = 0;
     let interestNote = 'ดอกเบี้ย';
 
     if (currentRound) {
-      // งวดแรก = 0 (host ได้ก่อน ไม่เสียดอก)
       if (currentRound.roundNumber > 1) {
         switch (group?.type) {
           case 'STEP_INTEREST':
-            // ดอกขั้นบันได = interestRate × งวดที่
             interestAmount = (group.interestRate || 0) * currentRound.roundNumber;
             if (group.interestRate) {
-              interestNote = `ดอกเบี้ย (${group.interestRate}×${currentRound.roundNumber})`;
+              interestNote = `ดอกเบี้ย (${group.interestRate}x${currentRound.roundNumber})`;
             }
             break;
           case 'FIXED_INTEREST':
-            // ดอกคงที่ = interestRate
             interestAmount = group.interestRate || 0;
             interestNote = 'ดอกเบี้ยคงที่';
             break;
           case 'BID_INTEREST':
           case 'BID_PRINCIPAL':
           case 'BID_PRINCIPAL_FIRST':
-            // ดอกประมูล = winningBid
             interestAmount = currentRound.winningBid || 0;
             interestNote = 'ดอกประมูล';
             break;
@@ -238,10 +292,8 @@ export default function ShareGroupDetailPage() {
 
     items.push({ name: interestNote, amount: interestAmount });
 
-    // 3. รายการจาก template
     if (group?.deductionTemplates) {
       group.deductionTemplates.forEach((t) => {
-        // Avoid duplicate with ค่าดูแลวง
         if (t.name !== 'ค่าดูแลวง') {
           items.push({ name: t.name, amount: t.amount });
         }
@@ -280,8 +332,9 @@ export default function ShareGroupDetailPage() {
       setShowRoundDeductionModal(false);
       setSelectedRoundForDeduction(null);
       fetchRounds();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'เกิดข้อผิดพลาด');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { message?: string } } };
+      setError(error.response?.data?.message || 'เกิดข้อผิดพลาด');
     }
   };
 
@@ -290,8 +343,9 @@ export default function ShareGroupDetailPage() {
       await api.post(`/rounds/generate/${id}`);
       setMessage('สร้างตารางงวดเรียบร้อยแล้ว');
       fetchRounds();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'เกิดข้อผิดพลาด');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'เกิดข้อผิดพลาด');
     }
   };
 
@@ -316,8 +370,9 @@ export default function ShareGroupDetailPage() {
       setShowAddModal(false);
       resetForm();
       fetchGroup();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'เกิดข้อผิดพลาด');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'เกิดข้อผิดพลาด');
     }
   };
 
@@ -332,8 +387,9 @@ export default function ShareGroupDetailPage() {
       setEditingMember(null);
       resetForm();
       fetchGroup();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'เกิดข้อผิดพลาด');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'เกิดข้อผิดพลาด');
     }
   };
 
@@ -344,8 +400,9 @@ export default function ShareGroupDetailPage() {
       await api.delete(`/members/${memberId}`);
       setMessage('ลบลูกแชร์เรียบร้อยแล้ว');
       fetchGroup();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'เกิดข้อผิดพลาด');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'เกิดข้อผิดพลาด');
     }
   };
 
@@ -369,19 +426,6 @@ export default function ShareGroupDetailPage() {
     });
   };
 
-  // Deduction CRUD handlers
-  const openAddDeductionModal = () => {
-    setEditingDeduction(null);
-    setDeductionFormData({ name: '', amount: 0 });
-    setShowDeductionModal(true);
-  };
-
-  const openEditDeductionModal = (deduction: DeductionTemplate) => {
-    setEditingDeduction(deduction);
-    setDeductionFormData({ name: deduction.name, amount: deduction.amount });
-    setShowDeductionModal(true);
-  };
-
   const handleSaveDeduction = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -402,29 +446,16 @@ export default function ShareGroupDetailPage() {
       setShowDeductionModal(false);
       setEditingDeduction(null);
       fetchGroup();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'เกิดข้อผิดพลาด');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'เกิดข้อผิดพลาด');
     }
   };
 
-  const handleDeleteDeduction = async (deductionId: number) => {
-    if (!confirm('ต้องการลบรายการหักรับนี้?')) return;
-
-    try {
-      await api.delete(`/share-groups/${id}/deductions/${deductionId}`);
-      setMessage('ลบรายการหักรับเรียบร้อยแล้ว');
-      fetchGroup();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'เกิดข้อผิดพลาด');
-    }
-  };
-
-  // Calculate total deductions
   const getTotalDeductions = () => {
     return group?.deductionTemplates?.reduce((sum, d) => sum + d.amount, 0) || 0;
   };
 
-  // Group status handlers
   const handleOpenGroup = async () => {
     setError('');
     try {
@@ -433,8 +464,9 @@ export default function ShareGroupDetailPage() {
       setShowOpenModal(false);
       fetchGroup();
       fetchRounds();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'เกิดข้อผิดพลาด');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'เกิดข้อผิดพลาด');
     }
   };
 
@@ -446,57 +478,47 @@ export default function ShareGroupDetailPage() {
       setShowCancelModal(false);
       setCancelReason('');
       fetchGroup();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'เกิดข้อผิดพลาด');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'เกิดข้อผิดพลาด');
     }
   };
 
-  // Check if group can be opened
   const canOpenGroup = () => {
     return group?.status === 'DRAFT' &&
            group.members.length >= group.maxMembers &&
            rounds.length > 0;
   };
 
-  // Get status badge
-  const getStatusBadge = () => {
+  const getStatusConfig = () => {
     switch (group?.status) {
       case 'DRAFT':
-        return <span className="px-3 py-1 text-sm bg-gray-100 text-gray-600 rounded-full">ร่าง</span>;
+        return { label: 'ร่าง', bg: 'bg-gray-100', text: 'text-gray-600', icon: '📝' };
       case 'OPEN':
-        return <span className="px-3 py-1 text-sm bg-green-100 text-green-800 rounded-full">เปิดวง</span>;
+        return { label: 'เปิดวง', bg: 'bg-green-100', text: 'text-green-700', icon: '✅' };
       case 'IN_PROGRESS':
-        return <span className="px-3 py-1 text-sm bg-yellow-100 text-yellow-800 rounded-full">กำลังดำเนินการ</span>;
+        return { label: 'กำลังดำเนินการ', bg: 'bg-yellow-100', text: 'text-yellow-700', icon: '🔄' };
       case 'COMPLETED':
-        return <span className="px-3 py-1 text-sm bg-blue-100 text-blue-800 rounded-full">เสร็จสิ้น</span>;
+        return { label: 'เสร็จสิ้น', bg: 'bg-blue-100', text: 'text-blue-700', icon: '🎉' };
       case 'CANCELLED':
-        return <span className="px-3 py-1 text-sm bg-red-100 text-red-800 rounded-full">ยกเลิก</span>;
+        return { label: 'ยกเลิก', bg: 'bg-red-100', text: 'text-red-700', icon: '❌' };
       default:
-        return null;
+        return { label: '', bg: '', text: '', icon: '' };
     }
   };
 
   const openWinnerModal = (round: Round) => {
     setSelectedRound(round);
 
-    // Get members who haven't won yet
     const availableMembers = group?.members.filter(m => !m.hasWon) || [];
-
-    // Find host member
     const hostMember = group?.members.find(m => m.userId === group?.hostId);
 
-    // Determine default winner based on round rules
     let defaultMemberId = 0;
-    let isLocked = false;
 
     if (round.roundNumber === 1 && hostMember) {
-      // First round: host wins
       defaultMemberId = hostMember.id;
-      isLocked = true;
     } else if (availableMembers.length === 1) {
-      // Last round: only one member left
       defaultMemberId = availableMembers[0].id;
-      isLocked = true;
     }
 
     setWinnerFormData({
@@ -515,7 +537,6 @@ export default function ShareGroupDetailPage() {
       return;
     }
 
-    // Confirmation dialog
     const selectedMember = group?.members.find(m => m.id === winnerFormData.memberId);
     const confirmMessage = isLastRound()
       ? `ยืนยันบันทึก ${selectedMember?.nickname} เป็นผู้ชนะงวดสุดท้าย?\n\nวงจะปิดหลังจากนี้`
@@ -533,12 +554,12 @@ export default function ShareGroupDetailPage() {
       setSelectedRound(null);
       fetchGroup();
       fetchRounds();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'เกิดข้อผิดพลาด');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'เกิดข้อผิดพลาด');
     }
   };
 
-  // Calculate payout for preview
   const calculatePayout = () => {
     if (!group) return 0;
     const totalPool = group.principalAmount * group.maxMembers;
@@ -547,103 +568,179 @@ export default function ShareGroupDetailPage() {
     return totalPool - interest - totalDeductions;
   };
 
-  // Get available members (those who haven't won)
   const getAvailableMembers = () => {
     return group?.members.filter(m => !m.hasWon) || [];
   };
 
-  // Check if it's first round
   const isFirstRound = () => selectedRound?.roundNumber === 1;
-
-  // Check if it's last round (only 1 member left)
   const isLastRound = () => getAvailableMembers().length === 1;
 
-  // Get current round (first round without winner)
-  const getCurrentRound = () => {
-    return rounds.find(r => !r.winnerId);
-  };
-
   if (isLoading) {
-    return <div className="text-center py-8">กำลังโหลด...</div>;
+    return (
+      <div className="flex items-center justify-center py-16">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500">กำลังโหลด...</p>
+        </div>
+      </div>
+    );
   }
 
   if (!group) {
-    return <div className="text-center py-8">ไม่พบวงแชร์</div>;
-  }
-
-  return (
-    <div>
-      <div className="mb-6">
-        <Link to="/share-groups" className="text-blue-600 hover:text-blue-500 text-sm">
-          &larr; กลับไปรายการวงแชร์
+    return (
+      <div className="text-center py-16">
+        <div className="text-6xl mb-4">🔍</div>
+        <p className="text-gray-500 text-lg">ไม่พบวงแชร์</p>
+        <Link to="/share-groups" className="text-blue-600 hover:text-blue-500 mt-4 inline-block">
+          กลับไปรายการวงแชร์
         </Link>
       </div>
+    );
+  }
 
+  const statusConfig = getStatusConfig();
+  const completedRounds = rounds.filter(r => r.winnerId).length;
+  const progressPercent = rounds.length > 0 ? (completedRounds / rounds.length) * 100 : 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Back Link */}
+      <Link to="/share-groups" className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        </svg>
+        <span>กลับไปรายการวงแชร์</span>
+      </Link>
+
+      {/* Toast Messages */}
       {message && (
-        <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded mb-6">
-          {message}
+        <div className="fixed top-4 right-4 z-50 animate-slide-in">
+          <div className="bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            {message}
+          </div>
         </div>
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded mb-6">
-          {error}
+        <div className="fixed top-4 right-4 z-50 animate-slide-in">
+          <div className="bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            {error}
+          </div>
         </div>
       )}
 
-      {/* Group Info */}
-      <div className="bg-white shadow rounded-lg p-6 mb-6">
-        <div className="flex justify-between items-start mb-4">
+      {/* Header Card */}
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 text-white shadow-lg">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{group.name}</h1>
-            <div className="mt-2">{getStatusBadge()}</div>
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-2xl font-bold">{group.name}</h1>
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${statusConfig.bg} ${statusConfig.text}`}>
+                {statusConfig.icon} {statusConfig.label}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-blue-100">
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${typeColors[group.type]}`}>
+                {typeLabels[group.type]}
+              </span>
+              <span>•</span>
+              <span>เริ่ม {new Date(group.startDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
+            </div>
           </div>
-          <div className="flex gap-2">
-            {group.status === 'DRAFT' && (
-              <>
-                <button
-                  onClick={() => setShowOpenModal(true)}
-                  disabled={!canOpenGroup()}
-                  className={`px-4 py-2 rounded-md text-sm font-medium ${
-                    canOpenGroup()
-                      ? 'bg-green-600 text-white hover:bg-green-700'
-                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  เปิดวง
-                </button>
-                <button
-                  onClick={() => setShowCancelModal(true)}
-                  className="px-4 py-2 bg-red-100 text-red-600 rounded-md text-sm font-medium hover:bg-red-200"
-                >
-                  ยกเลิกวง
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-          <div>
-            <span className="text-gray-500">ประเภท:</span>
-            <p className="font-medium">{typeLabels[group.type]}</p>
-          </div>
-          <div>
-            <span className="text-gray-500">เงินต้น:</span>
-            <p className="font-medium">{group.principalAmount.toLocaleString()} บาท</p>
-          </div>
-          <div>
-            <span className="text-gray-500">ลูกแชร์:</span>
-            <p className="font-medium">{group.members.length}/{group.maxMembers} คน</p>
-          </div>
-          <div>
-            <span className="text-gray-500">เงินกองกลาง:</span>
-            <p className="font-medium">{(group.principalAmount * group.maxMembers).toLocaleString()} บาท</p>
-          </div>
+
+          {group.status === 'DRAFT' && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowOpenModal(true)}
+                disabled={!canOpenGroup()}
+                className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  canOpenGroup()
+                    ? 'bg-white text-green-600 hover:bg-green-50 shadow-md'
+                    : 'bg-white/20 text-white/60 cursor-not-allowed'
+                }`}
+              >
+                เปิดวง
+              </button>
+              <button
+                onClick={() => setShowCancelModal(true)}
+                className="px-5 py-2.5 bg-white/20 text-white rounded-lg text-sm font-medium hover:bg-white/30 transition-all"
+              >
+                ยกเลิกวง
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Show message if group can't be opened */}
-        {group.status === 'DRAFT' && !canOpenGroup() && (
-          <div className="mt-4 bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded text-sm">
+        {/* Progress Bar */}
+        {rounds.length > 0 && (
+          <div className="mt-6">
+            <div className="flex justify-between text-sm text-blue-100 mb-2">
+              <span>ความคืบหน้า</span>
+              <span>{completedRounds}/{rounds.length} งวด</span>
+            </div>
+            <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-white rounded-full transition-all duration-500"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <div className="text-gray-500 text-xs mb-1">เงินต้น</div>
+          <div className="text-lg font-bold text-gray-900">{group.principalAmount.toLocaleString()}</div>
+          <div className="text-xs text-gray-400">บาท/คน</div>
+        </div>
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <div className="text-gray-500 text-xs mb-1">ลูกแชร์</div>
+          <div className="text-lg font-bold text-gray-900">{group.members.length}/{group.maxMembers}</div>
+          <div className="text-xs text-gray-400">คน</div>
+        </div>
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <div className="text-gray-500 text-xs mb-1">เงินกองกลาง</div>
+          <div className="text-lg font-bold text-blue-600">{(group.principalAmount * group.maxMembers).toLocaleString()}</div>
+          <div className="text-xs text-gray-400">บาท/งวด</div>
+        </div>
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <div className="text-gray-500 text-xs mb-1">ค่าดูแลวง</div>
+          <div className="text-lg font-bold text-orange-600">{(group.managementFee || 0).toLocaleString()}</div>
+          <div className="text-xs text-gray-400">บาท</div>
+        </div>
+        {(group.type === 'STEP_INTEREST' || group.type === 'FIXED_INTEREST') && (
+          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+            <div className="text-gray-500 text-xs mb-1">ดอกเบี้ย</div>
+            <div className="text-lg font-bold text-purple-600">{(group.interestRate || 0).toLocaleString()}</div>
+            <div className="text-xs text-gray-400">บาท{group.type === 'STEP_INTEREST' ? '/งวด' : ''}</div>
+          </div>
+        )}
+        {group.summary && (
+          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+            <div className="text-gray-500 text-xs mb-1">สถานะสมาชิก</div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-lg font-bold text-green-600">{group.summary.wonCount}</span>
+              <span className="text-gray-400">/</span>
+              <span className="text-sm text-gray-500">{group.summary.notWonCount}</span>
+            </div>
+            <div className="text-xs text-gray-400">เปีย/รอ</div>
+          </div>
+        )}
+      </div>
+
+      {/* Alert for DRAFT */}
+      {group.status === 'DRAFT' && !canOpenGroup() && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+          <span className="text-2xl">⚠️</span>
+          <div className="text-sm text-amber-700">
             {group.members.length < group.maxMembers && (
               <p>ต้องเพิ่มลูกแชร์ให้ครบ {group.maxMembers} คน (ปัจจุบัน {group.members.length} คน)</p>
             )}
@@ -651,223 +748,213 @@ export default function ShareGroupDetailPage() {
               <p>ต้องสร้างตารางงวดก่อนเปิดวง</p>
             )}
           </div>
-        )}
-
-        {/* Show completion summary */}
-        {group.status === 'COMPLETED' && (
-          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-blue-800 mb-2">สรุปวง</h3>
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div>
-                <span className="text-blue-600">งวดทั้งหมด:</span>
-                <p className="font-medium">{rounds.length} งวด</p>
-              </div>
-              <div>
-                <span className="text-blue-600">เงินหมุนเวียนรวม:</span>
-                <p className="font-medium">{(group.principalAmount * group.maxMembers * rounds.length).toLocaleString()} บาท</p>
-              </div>
-              <div>
-                <span className="text-blue-600">ดอกเบี้ยรวม:</span>
-                <p className="font-medium">{rounds.reduce((sum, r) => sum + (r.winningBid || 0), 0).toLocaleString()} บาท</p>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Tabs */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="border-b">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="border-b border-gray-100">
           <nav className="flex">
-            <button
-              onClick={() => setActiveTab('members')}
-              className={`px-6 py-4 text-sm font-medium ${
-                activeTab === 'members'
-                  ? 'border-b-2 border-blue-500 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              ลูกแชร์ ({group.members.length}/{group.maxMembers})
-            </button>
-            <button
-              onClick={() => setActiveTab('rounds')}
-              className={`px-6 py-4 text-sm font-medium ${
-                activeTab === 'rounds'
-                  ? 'border-b-2 border-blue-500 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              งวด ({rounds.filter(r => r.winnerId).length}/{rounds.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('summary')}
-              className={`px-6 py-4 text-sm font-medium ${
-                activeTab === 'summary'
-                  ? 'border-b-2 border-blue-500 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              รายงาน
-            </button>
+            {[
+              { key: 'members', label: 'ลูกแชร์', icon: '👥', count: `${group.members.length}/${group.maxMembers}` },
+              { key: 'rounds', label: 'งวด', icon: '📅', count: `${completedRounds}/${rounds.length}` },
+              { key: 'summary', label: 'รายงาน', icon: '📊' },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key as 'members' | 'rounds' | 'summary')}
+                className={`flex-1 px-6 py-4 text-sm font-medium transition-all relative ${
+                  activeTab === tab.key
+                    ? 'text-blue-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span className="flex items-center justify-center gap-2">
+                  <span>{tab.icon}</span>
+                  <span>{tab.label}</span>
+                  {tab.count && (
+                    <span className={`px-2 py-0.5 rounded-full text-xs ${
+                      activeTab === tab.key ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {tab.count}
+                    </span>
+                  )}
+                </span>
+                {activeTab === tab.key && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
+                )}
+              </button>
+            ))}
           </nav>
         </div>
 
         {/* Members Tab */}
         {activeTab === 'members' && (
-          <>
-            <div className="px-6 py-4 border-b flex justify-between items-center">
-              <div>
-                {group.summary && (
-                  <div className="flex gap-4 text-sm">
-                    <span className="text-green-600">เปียแล้ว: {group.summary.wonCount}</span>
-                    <span className="text-blue-600">ยังไม่เปีย: {group.summary.notWonCount}</span>
-                  </div>
-                )}
+          <div>
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+              <div className="flex items-center gap-4 text-sm">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                  <span className="text-gray-600">เปียแล้ว {group.summary?.wonCount || 0}</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                  <span className="text-gray-600">ยังไม่เปีย {group.summary?.notWonCount || 0}</span>
+                </span>
               </div>
               {group.status === 'DRAFT' && group.members.length < group.maxMembers && (
                 <button
                   onClick={() => setShowAddModal(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center gap-2"
                 >
-                  + เพิ่มลูกแชร์
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  เพิ่มลูกแชร์
                 </button>
               )}
             </div>
 
             {group.members.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
-                ยังไม่มีลูกแชร์
+              <div className="p-12 text-center">
+                <div className="text-5xl mb-4">👥</div>
+                <p className="text-gray-500">ยังไม่มีลูกแชร์</p>
               </div>
             ) : (
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">รหัส</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ชื่อเล่น</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">สถานะ</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">เบอร์โทร</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">จัดการ</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {group.members.map((member) => (
-                    <tr key={member.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {member.memberCode}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {member.nickname}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {member.hasWon ? (
-                          <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
-                            เปียแล้ว (งวด {member.wonRoundNumber})
-                          </span>
-                        ) : (
-                          <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
-                            ยังไม่เปีย
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {member.phone || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+              <div className="divide-y divide-gray-100">
+                {group.members.map((member) => (
+                  <div key={member.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-medium ${
+                        member.hasWon ? 'bg-green-500' : 'bg-blue-500'
+                      }`}>
+                        {member.userId === group.hostId ? '👑' : (member.memberCode?.slice(-1) || member.nickname?.charAt(0) || '?')}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900">{member.nickname}</span>
+                          {member.userId === group.hostId && (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">ท้าวแชร์</span>
+                          )}
+                          {member.memberCode && <span className="text-xs text-gray-400">{member.memberCode}</span>}
+                        </div>
+                        <div className="flex items-center gap-3 text-sm text-gray-500 mt-0.5">
+                          {member.phone && (
+                            <span className="flex items-center gap-1">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                              </svg>
+                              {member.phone}
+                            </span>
+                          )}
+                          {member.lineId && (
+                            <span className="flex items-center gap-1">
+                              <span className="text-green-500 font-bold text-xs">LINE</span>
+                              {member.lineId}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {member.hasWon ? (
+                        <span className="px-3 py-1.5 bg-green-100 text-green-700 text-sm rounded-full font-medium">
+                          เปียงวด {member.wonRoundNumber}
+                        </span>
+                      ) : (
+                        <span className="px-3 py-1.5 bg-blue-100 text-blue-700 text-sm rounded-full font-medium">
+                          ยังไม่เปีย
+                        </span>
+                      )}
+                      <button
+                        onClick={() => openEditModal(member)}
+                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                      </button>
+                      {group.status === 'DRAFT' && !member.hasWon && (
                         <button
-                          onClick={() => openEditModal(member)}
-                          className="text-blue-600 hover:text-blue-900 mr-3"
+                          onClick={() => handleDeleteMember(member.id)}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                         >
-                          แก้ไข
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
                         </button>
-                        {group.status === 'DRAFT' && !member.hasWon && (
-                          <button
-                            onClick={() => handleDeleteMember(member.id)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            ลบ
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
-          </>
+          </div>
         )}
 
         {/* Rounds Tab */}
         {activeTab === 'rounds' && (
           <div className="p-6">
             {rounds.length === 0 ? (
-              <div className="text-center py-8">
+              <div className="text-center py-12">
+                <div className="text-5xl mb-4">📅</div>
                 <p className="text-gray-500 mb-4">ยังไม่มีตารางงวด</p>
                 {group.status === 'DRAFT' && group.members.length === group.maxMembers && (
                   <button
                     onClick={generateRounds}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
                   >
                     สร้างตารางงวด
                   </button>
                 )}
                 {group.status === 'DRAFT' && group.members.length < group.maxMembers && (
-                  <p className="text-sm text-orange-600 mt-2">
-                    ต้องเพิ่มลูกแชร์ให้ครบ {group.maxMembers} คนก่อน (ปัจจุบัน {group.members.length} คน)
+                  <p className="text-sm text-amber-600 mt-2">
+                    ต้องเพิ่มลูกแชร์ให้ครบ {group.maxMembers} คนก่อน
                   </p>
                 )}
               </div>
             ) : (
               <>
-                {/* Rounds Timeline */}
-                <div className="mb-6 overflow-x-auto">
-                  <div className="flex gap-4 min-w-max pb-4">
+                {/* Compact Timeline */}
+                <div className="mb-8 overflow-x-auto pb-2">
+                  <div className="flex items-center gap-1 min-w-max">
                     {rounds.map((round, index) => {
                       const isCompleted = round.status === 'COMPLETED';
                       const isCurrent = !round.winnerId && (index === 0 || rounds[index - 1]?.winnerId);
 
                       return (
                         <div key={round.id} className="flex items-center">
-                          <div
-                            className={`flex flex-col items-center cursor-pointer hover:opacity-80 transition-opacity ${
-                              isCurrent ? 'scale-105' : ''
-                            }`}
+                          <button
                             onClick={() => !isCompleted && isCurrent && group.status === 'OPEN' && openWinnerModal(round)}
+                            disabled={!(!isCompleted && isCurrent && group.status === 'OPEN')}
+                            className={`relative group ${!isCompleted && isCurrent && group.status === 'OPEN' ? 'cursor-pointer' : ''}`}
                           >
-                            {/* Circle */}
                             <div
-                              className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium ${
+                              className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all ${
                                 isCompleted
                                   ? 'bg-green-500 text-white'
                                   : isCurrent
-                                  ? 'bg-blue-500 text-white ring-4 ring-blue-200'
+                                  ? 'bg-blue-500 text-white ring-4 ring-blue-200 animate-pulse'
                                   : 'bg-gray-200 text-gray-500'
                               }`}
                             >
                               {isCompleted ? '✓' : round.roundNumber}
                             </div>
-
-                            {/* Info */}
-                            <div className="mt-2 text-center">
-                              <p className="text-xs font-medium">งวด {round.roundNumber}</p>
-                              {round.winner && (
-                                <p className="text-xs text-gray-500">{round.winner.nickname}</p>
-                              )}
+                            {/* Tooltip */}
+                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                              <div className="font-medium">งวด {round.roundNumber}</div>
+                              {round.winner && <div className="text-gray-300">{round.winner.nickname}</div>}
                               {round.winningBid !== null && round.winningBid > 0 && (
-                                <p className="text-xs text-green-600">{round.winningBid.toLocaleString()} บาท</p>
+                                <div className="text-green-400">{round.winningBid.toLocaleString()} บาท</div>
                               )}
                               {!round.winnerId && isCurrent && group.status === 'OPEN' && (
-                                <p className="text-xs text-blue-600">คลิกบันทึก</p>
+                                <div className="text-blue-300">คลิกเพื่อบันทึก</div>
                               )}
+                              <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
                             </div>
-                          </div>
-
-                          {/* Connector */}
+                          </button>
                           {index < rounds.length - 1 && (
-                            <div
-                              className={`w-8 h-0.5 mx-2 ${
-                                isCompleted ? 'bg-green-500' : 'bg-gray-200'
-                              }`}
-                            />
+                            <div className={`w-6 h-0.5 ${isCompleted ? 'bg-green-500' : 'bg-gray-200'}`} />
                           )}
                         </div>
                       );
@@ -876,115 +963,120 @@ export default function ShareGroupDetailPage() {
                 </div>
 
                 {/* Rounds Table */}
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">งวด</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">กำหนดชำระ</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">สถานะ</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ผู้ชนะ</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ดอกเบี้ย</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ได้รับ</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">จัดการ</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {rounds.map((round) => (
-                      <tr key={round.id} className={round.winnerId ? '' : 'bg-gray-50'}>
-                        <td className="px-4 py-3 text-sm font-medium">{round.roundNumber}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">
-                          {new Date(round.dueDate).toLocaleDateString('th-TH')}
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          {round.status === 'COMPLETED' ? (
-                            <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">สำเร็จ</span>
-                          ) : (
-                            <span className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-full">รอ</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm">{round.winner?.nickname || '-'}</td>
-                        <td className="px-4 py-3 text-sm text-right">
-                          {round.winningBid !== null ? round.winningBid.toLocaleString() : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-medium text-green-600">
-                          {round.payoutAmount !== null ? round.payoutAmount.toLocaleString() : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <button
-                            onClick={() => openRoundDeductionModal(round)}
-                            className="text-blue-600 hover:text-blue-800 text-sm"
-                          >
-                            จัดการ
-                          </button>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full">
+                    <thead>
+                      <tr className="bg-gray-50">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">งวด</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">กำหนดชำระ</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">สถานะ</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ผู้ชนะ</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ดอกเบี้ย</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ได้รับ</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">จัดการ</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {rounds.map((round) => (
+                        <tr key={round.id} className={round.winnerId ? '' : 'bg-gray-50/50'}>
+                          <td className="px-4 py-3">
+                            <span className="font-medium text-gray-900">{round.roundNumber}</span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500">
+                            {new Date(round.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                          </td>
+                          <td className="px-4 py-3">
+                            {round.status === 'COMPLETED' ? (
+                              <span className="px-2.5 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">สำเร็จ</span>
+                            ) : (
+                              <span className="px-2.5 py-1 text-xs bg-gray-100 text-gray-500 rounded-full font-medium">รอ</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm">{round.winner?.nickname || '-'}</td>
+                          <td className="px-4 py-3 text-sm text-right">
+                            {round.winningBid !== null && round.winningBid > 0 ? round.winningBid.toLocaleString() : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-right font-medium text-green-600">
+                            {round.payoutAmount !== null ? round.payoutAmount.toLocaleString() : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              onClick={() => openRoundDeductionModal(round)}
+                              className="px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg text-sm transition-colors"
+                            >
+                              จัดการ
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </>
             )}
           </div>
         )}
 
-        {/* Summary/Report Tab */}
+        {/* Summary Tab */}
         {activeTab === 'summary' && (
           <div className="p-6">
             {isSummaryLoading ? (
-              <div className="text-center py-8 text-gray-500">กำลังโหลดรายงาน...</div>
+              <div className="flex items-center justify-center py-12">
+                <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
             ) : !summaryData ? (
-              <div className="text-center py-8 text-gray-500">ไม่สามารถโหลดรายงานได้</div>
+              <div className="text-center py-12 text-gray-500">ไม่สามารถโหลดรายงานได้</div>
             ) : (
               <div className="space-y-8">
                 {/* Financial Summary */}
                 <div>
-                  <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                     <span>📊</span> สรุปการเงิน
                   </h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-sm text-gray-500">เงินต้นต่องวด</p>
+                    <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-4">
+                      <p className="text-sm text-gray-500 mb-1">เงินต้นต่องวด</p>
                       <p className="text-xl font-bold text-gray-900">
-                        {summaryData.financial.principalPerRound.toLocaleString()} บาท
+                        {summaryData.financial.principalPerRound.toLocaleString()}
                       </p>
                     </div>
-                    <div className="bg-blue-50 rounded-lg p-4">
-                      <p className="text-sm text-blue-600">เงินกองกลางต่องวด</p>
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4">
+                      <p className="text-sm text-blue-600 mb-1">เงินกองกลางต่องวด</p>
                       <p className="text-xl font-bold text-blue-700">
-                        {summaryData.financial.poolPerRound.toLocaleString()} บาท
+                        {summaryData.financial.poolPerRound.toLocaleString()}
                       </p>
                     </div>
-                    <div className="bg-green-50 rounded-lg p-4">
-                      <p className="text-sm text-green-600">เงินหมุนเวียนรวม</p>
+                    <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4">
+                      <p className="text-sm text-green-600 mb-1">เงินหมุนเวียนรวม</p>
                       <p className="text-xl font-bold text-green-700">
-                        {summaryData.financial.totalPool.toLocaleString()} บาท
+                        {summaryData.financial.totalPool.toLocaleString()}
                       </p>
                     </div>
-                    <div className="bg-orange-50 rounded-lg p-4">
-                      <p className="text-sm text-orange-600">งวดที่เสร็จสิ้น</p>
+                    <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-4">
+                      <p className="text-sm text-orange-600 mb-1">งวดที่เสร็จสิ้น</p>
                       <p className="text-xl font-bold text-orange-700">
                         {summaryData.financial.completedRounds}/{summaryData.financial.totalRounds}
                       </p>
                     </div>
                   </div>
 
-                  {/* More financial details */}
                   <div className="mt-4 grid grid-cols-3 gap-4">
-                    <div className="bg-yellow-50 rounded-lg p-4">
-                      <p className="text-sm text-yellow-600">ดอกเบี้ยรวม</p>
+                    <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-xl p-4">
+                      <p className="text-sm text-yellow-600 mb-1">ดอกเบี้ยรวม</p>
                       <p className="text-lg font-bold text-yellow-700">
-                        {summaryData.financial.totalInterest.toLocaleString()} บาท
+                        {summaryData.financial.totalInterest.toLocaleString()}
                       </p>
                     </div>
-                    <div className="bg-red-50 rounded-lg p-4">
-                      <p className="text-sm text-red-600">รายการหักรับรวม</p>
+                    <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-xl p-4">
+                      <p className="text-sm text-red-600 mb-1">รายการหักรับรวม</p>
                       <p className="text-lg font-bold text-red-700">
-                        {summaryData.financial.totalDeductions.toLocaleString()} บาท
+                        {summaryData.financial.totalDeductions.toLocaleString()}
                       </p>
                     </div>
-                    <div className="bg-purple-50 rounded-lg p-4">
-                      <p className="text-sm text-purple-600">จ่ายผู้ชนะรวม</p>
+                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4">
+                      <p className="text-sm text-purple-600 mb-1">จ่ายผู้ชนะรวม</p>
                       <p className="text-lg font-bold text-purple-700">
-                        {summaryData.financial.totalPayout.toLocaleString()} บาท
+                        {summaryData.financial.totalPayout.toLocaleString()}
                       </p>
                     </div>
                   </div>
@@ -992,13 +1084,13 @@ export default function ShareGroupDetailPage() {
 
                 {/* Rounds Summary Table */}
                 <div>
-                  <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                     <span>📋</span> รายงวด
                   </h3>
                   <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
+                    <table className="min-w-full">
+                      <thead>
+                        <tr className="bg-gray-50">
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">งวด</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">กำหนด</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ผู้ชนะ</th>
@@ -1007,12 +1099,12 @@ export default function ShareGroupDetailPage() {
                           <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ได้รับ</th>
                         </tr>
                       </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {summaryData.rounds.map((round: any) => (
-                          <tr key={round.roundNumber} className={round.status === 'COMPLETED' ? '' : 'bg-gray-50'}>
+                      <tbody className="divide-y divide-gray-100">
+                        {summaryData.rounds.map((round) => (
+                          <tr key={round.roundNumber} className={round.status === 'COMPLETED' ? '' : 'bg-gray-50/50'}>
                             <td className="px-4 py-3 text-sm font-medium">{round.roundNumber}</td>
                             <td className="px-4 py-3 text-sm text-gray-500">
-                              {new Date(round.dueDate).toLocaleDateString('th-TH')}
+                              {new Date(round.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}
                             </td>
                             <td className="px-4 py-3 text-sm">
                               {round.status === 'COMPLETED' ? round.winnerName : '-'}
@@ -1050,46 +1142,45 @@ export default function ShareGroupDetailPage() {
                 {/* Member History */}
                 {memberHistoryData && (
                   <div>
-                    <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                       <span>👥</span> ประวัติสมาชิก
                     </h3>
 
-                    {/* Stats */}
                     {memberHistoryData.stats.wonCount > 0 && (
                       <div className="grid grid-cols-4 gap-4 mb-4">
-                        <div className="bg-blue-50 rounded-lg p-3">
-                          <p className="text-xs text-blue-600">เปียแล้ว</p>
+                        <div className="bg-blue-50 rounded-xl p-3">
+                          <p className="text-xs text-blue-600 mb-1">เปียแล้ว</p>
                           <p className="text-lg font-bold text-blue-700">
                             {memberHistoryData.stats.wonCount}/{memberHistoryData.stats.totalMembers}
                           </p>
                         </div>
-                        <div className="bg-yellow-50 rounded-lg p-3">
-                          <p className="text-xs text-yellow-600">ดอกต่ำสุด</p>
+                        <div className="bg-yellow-50 rounded-xl p-3">
+                          <p className="text-xs text-yellow-600 mb-1">ดอกต่ำสุด</p>
                           <p className="text-lg font-bold text-yellow-700">
                             {memberHistoryData.stats.minInterest.toLocaleString()}
                           </p>
-                          <p className="text-xs text-yellow-500">{memberHistoryData.stats.minInterestMember}</p>
+                          <p className="text-xs text-yellow-500 truncate">{memberHistoryData.stats.minInterestMember}</p>
                         </div>
-                        <div className="bg-orange-50 rounded-lg p-3">
-                          <p className="text-xs text-orange-600">ดอกสูงสุด</p>
+                        <div className="bg-orange-50 rounded-xl p-3">
+                          <p className="text-xs text-orange-600 mb-1">ดอกสูงสุด</p>
                           <p className="text-lg font-bold text-orange-700">
                             {memberHistoryData.stats.maxInterest.toLocaleString()}
                           </p>
-                          <p className="text-xs text-orange-500">{memberHistoryData.stats.maxInterestMember}</p>
+                          <p className="text-xs text-orange-500 truncate">{memberHistoryData.stats.maxInterestMember}</p>
                         </div>
-                        <div className="bg-purple-50 rounded-lg p-3">
-                          <p className="text-xs text-purple-600">ดอกเฉลี่ย</p>
+                        <div className="bg-purple-50 rounded-xl p-3">
+                          <p className="text-xs text-purple-600 mb-1">ดอกเฉลี่ย</p>
                           <p className="text-lg font-bold text-purple-700">
-                            {memberHistoryData.stats.avgInterest.toFixed(2)}
+                            {memberHistoryData.stats.avgInterest.toFixed(0)}
                           </p>
                         </div>
                       </div>
                     )}
 
                     <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                          <tr>
+                      <table className="min-w-full">
+                        <thead>
+                          <tr className="bg-gray-50">
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">#</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ชื่อ</th>
                             <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">งวด</th>
@@ -1097,9 +1188,9 @@ export default function ShareGroupDetailPage() {
                             <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ได้รับ</th>
                           </tr>
                         </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {memberHistoryData.members.map((member: any) => (
-                            <tr key={member.id} className={member.hasWon ? '' : 'bg-gray-50'}>
+                        <tbody className="divide-y divide-gray-100">
+                          {memberHistoryData.members.map((member) => (
+                            <tr key={member.id} className={member.hasWon ? '' : 'bg-gray-50/50'}>
                               <td className="px-4 py-3 text-sm">{member.order}</td>
                               <td className="px-4 py-3 text-sm">
                                 {member.isHost && <span className="mr-1">👑</span>}
@@ -1107,7 +1198,7 @@ export default function ShareGroupDetailPage() {
                               </td>
                               <td className="px-4 py-3 text-sm text-center">
                                 {member.hasWon ? (
-                                  <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">
+                                  <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">
                                     {member.roundNumber}
                                   </span>
                                 ) : (
@@ -1135,80 +1226,79 @@ export default function ShareGroupDetailPage() {
         )}
       </div>
 
+      {/* Modals */}
       {/* Add Member Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium">เพิ่มลูกแชร์</h2>
-              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600">
-                &#x2715;
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto animate-scale-in">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold">เพิ่มลูกแชร์</h2>
+              <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
 
             <form onSubmit={handleAddMember} className="space-y-4">
-              {error && (
-                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded text-sm">
-                  {error}
-                </div>
-              )}
-
-              <div className="text-sm text-gray-500 bg-gray-50 px-3 py-2 rounded">
-                รหัสลูกแชร์จะถูกสร้างอัตโนมัติ (A, B, C, ...)
+              <div className="text-sm text-gray-500 bg-gray-50 px-4 py-3 rounded-xl">
+                รหัสลูกแชร์จะถูกสร้างอัตโนมัติ
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">ชื่อเล่น *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อเล่น *</label>
                 <input
                   type="text"
                   required
                   value={formData.nickname}
                   onChange={(e) => setFormData({ ...formData, nickname: e.target.value })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="เช่น พี่แดง, น้องเอ"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">เบอร์โทร</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">เบอร์โทร</label>
                 <input
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="08x-xxx-xxxx"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">ไลน์ไอดี</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ไลน์ไอดี</label>
                 <input
                   type="text"
                   value={formData.lineId}
                   onChange={(e) => setFormData({ ...formData, lineId: e.target.value })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">ที่อยู่</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ที่อยู่</label>
                 <textarea
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                   rows={2}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                 />
               </div>
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex gap-3 pt-4">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
                 >
                   เพิ่ม
                 </button>
@@ -1220,81 +1310,77 @@ export default function ShareGroupDetailPage() {
 
       {/* Edit Member Modal */}
       {showEditModal && editingMember && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium">แก้ไขลูกแชร์</h2>
-              <button onClick={() => { setShowEditModal(false); setEditingMember(null); resetForm(); }} className="text-gray-400 hover:text-gray-600">
-                &#x2715;
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto animate-scale-in">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold">แก้ไขลูกแชร์</h2>
+              <button onClick={() => { setShowEditModal(false); setEditingMember(null); resetForm(); }} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
 
             <form onSubmit={handleEditMember} className="space-y-4">
-              {error && (
-                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded text-sm">
-                  {error}
-                </div>
-              )}
-
               <div>
-                <label className="block text-sm font-medium text-gray-700">รหัสลูกแชร์</label>
-                <div className="mt-1 px-3 py-2 bg-gray-100 border border-gray-200 rounded-md text-gray-700 font-medium">
+                <label className="block text-sm font-medium text-gray-700 mb-1">รหัสลูกแชร์</label>
+                <div className="px-4 py-3 bg-gray-100 rounded-xl text-gray-700 font-medium">
                   {editingMember?.memberCode}
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">ชื่อเล่น *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อเล่น *</label>
                 <input
                   type="text"
                   required
                   value={formData.nickname}
                   onChange={(e) => setFormData({ ...formData, nickname: e.target.value })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">เบอร์โทร</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">เบอร์โทร</label>
                 <input
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">ไลน์ไอดี</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ไลน์ไอดี</label>
                 <input
                   type="text"
                   value={formData.lineId}
                   onChange={(e) => setFormData({ ...formData, lineId: e.target.value })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">ที่อยู่</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ที่อยู่</label>
                 <textarea
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                   rows={2}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                 />
               </div>
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex gap-3 pt-4">
                 <button
                   type="button"
                   onClick={() => { setShowEditModal(false); setEditingMember(null); resetForm(); }}
-                  className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
                 >
                   บันทึก
                 </button>
@@ -1306,47 +1392,39 @@ export default function ShareGroupDetailPage() {
 
       {/* Record Winner Modal */}
       {showWinnerModal && selectedRound && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto animate-scale-in">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold">
                 บันทึกผู้ชนะ - งวดที่ {selectedRound.roundNumber}
-                {isLastRound() && ' (งวดสุดท้าย)'}
               </h2>
-              <button
-                onClick={() => { setShowWinnerModal(false); setSelectedRound(null); }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                &#x2715;
+              <button onClick={() => { setShowWinnerModal(false); setSelectedRound(null); }} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
 
             <form onSubmit={handleRecordWinner} className="space-y-4">
-              {error && (
-                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded text-sm">
-                  {error}
-                </div>
-              )}
-
-              {/* Info messages */}
               {isFirstRound() && (
-                <div className="text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded">
-                  งวดแรกเป็นสิทธิ์ของท้าวแชร์
+                <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-xl text-blue-700">
+                  <span className="text-xl">👑</span>
+                  <span className="text-sm">งวดแรกเป็นสิทธิ์ของท้าวแชร์</span>
                 </div>
               )}
               {isLastRound() && (
-                <div className="text-sm text-green-600 bg-green-50 px-3 py-2 rounded">
-                  งวดสุดท้าย - ได้รับเงินเต็ม (ไม่หักดอก)
+                <div className="flex items-center gap-3 p-4 bg-green-50 rounded-xl text-green-700">
+                  <span className="text-xl">🎉</span>
+                  <span className="text-sm">งวดสุดท้าย - ได้รับเงินเต็ม (ไม่หักดอก)</span>
                 </div>
               )}
 
-              {/* Winner Selection */}
               <div>
-                <label className="block text-sm font-medium text-gray-700">ผู้ชนะ *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ผู้ชนะ *</label>
                 <select
                   value={winnerFormData.memberId}
                   onChange={(e) => setWinnerFormData({ ...winnerFormData, memberId: parseInt(e.target.value) })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   disabled={isFirstRound() || isLastRound()}
                   required
                 >
@@ -1363,28 +1441,24 @@ export default function ShareGroupDetailPage() {
                 </p>
               </div>
 
-              {/* Interest Input */}
               <div>
-                <label className="block text-sm font-medium text-gray-700">ดอกเบี้ย (บาท)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ดอกเบี้ย (บาท)</label>
                 <input
                   type="number"
                   min={0}
                   value={winnerFormData.interest}
                   onChange={(e) => setWinnerFormData({ ...winnerFormData, interest: parseInt(e.target.value) || 0 })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   disabled={isFirstRound() || isLastRound()}
                 />
               </div>
 
-              {/* Summary */}
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-gray-50 rounded-xl p-4">
                 <h3 className="text-sm font-medium text-gray-700 mb-3">สรุปรายการหักรับ</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-gray-500">เงินกองกลาง:</span>
-                    <span className="font-medium">
-                      {((group?.principalAmount || 0) * (group?.maxMembers || 0)).toLocaleString()} บาท
-                    </span>
+                    <span className="font-medium">{((group?.principalAmount || 0) * (group?.maxMembers || 0)).toLocaleString()} บาท</span>
                   </div>
                   {winnerFormData.interest > 0 && (
                     <div className="flex justify-between text-red-600">
@@ -1392,22 +1466,12 @@ export default function ShareGroupDetailPage() {
                       <span>-{winnerFormData.interest.toLocaleString()} บาท</span>
                     </div>
                   )}
-                  {group?.deductionTemplates && group.deductionTemplates.length > 0 && (
-                    <>
-                      {group.deductionTemplates.map((d) => (
-                        <div key={d.id} className="flex justify-between text-red-600">
-                          <span>- {d.name}:</span>
-                          <span>-{d.amount.toLocaleString()} บาท</span>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                  {getTotalDeductions() > 0 && (
-                    <div className="flex justify-between text-gray-500 text-xs border-t pt-1">
-                      <span>รวมหักรับ:</span>
-                      <span>{(winnerFormData.interest + getTotalDeductions()).toLocaleString()} บาท</span>
+                  {group?.deductionTemplates && group.deductionTemplates.map((d) => (
+                    <div key={d.id} className="flex justify-between text-red-600">
+                      <span>- {d.name}:</span>
+                      <span>-{d.amount.toLocaleString()} บาท</span>
                     </div>
-                  )}
+                  ))}
                   <div className="border-t pt-2 flex justify-between font-medium text-green-600">
                     <span>ได้รับจริง:</span>
                     <span>{calculatePayout().toLocaleString()} บาท</span>
@@ -1415,24 +1479,24 @@ export default function ShareGroupDetailPage() {
                 </div>
               </div>
 
-              {/* Last round note */}
               {isLastRound() && (
-                <div className="text-sm text-orange-600 bg-orange-50 px-3 py-2 rounded">
-                  วงจะปิดหลังยืนยันงวดนี้
+                <div className="flex items-center gap-3 p-4 bg-orange-50 rounded-xl text-orange-700">
+                  <span className="text-xl">⚠️</span>
+                  <span className="text-sm">วงจะปิดหลังยืนยันงวดนี้</span>
                 </div>
               )}
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex gap-3 pt-4">
                 <button
                   type="button"
                   onClick={() => { setShowWinnerModal(false); setSelectedRound(null); }}
-                  className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
                 >
                   {isFirstRound() || isLastRound() ? 'ยืนยัน' : 'บันทึก'}
                 </button>
@@ -1444,62 +1508,55 @@ export default function ShareGroupDetailPage() {
 
       {/* Deduction Modal */}
       {showDeductionModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md animate-scale-in">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold">
                 {editingDeduction ? 'แก้ไขรายการหักรับ' : 'เพิ่มรายการหักรับ'}
               </h2>
-              <button
-                onClick={() => { setShowDeductionModal(false); setEditingDeduction(null); }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                &#x2715;
+              <button onClick={() => { setShowDeductionModal(false); setEditingDeduction(null); }} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
 
             <form onSubmit={handleSaveDeduction} className="space-y-4">
-              {error && (
-                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded text-sm">
-                  {error}
-                </div>
-              )}
-
               <div>
-                <label className="block text-sm font-medium text-gray-700">ชื่อรายการ *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อรายการ *</label>
                 <input
                   type="text"
                   required
                   value={deductionFormData.name}
                   onChange={(e) => setDeductionFormData({ ...deductionFormData, name: e.target.value })}
                   placeholder="เช่น ค่าดูแลวง, หักท้ายท้าว"
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">จำนวนเงิน (บาท) *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">จำนวนเงิน (บาท) *</label>
                 <input
                   type="number"
                   required
                   min={0}
                   value={deductionFormData.amount || ''}
                   onChange={(e) => setDeductionFormData({ ...deductionFormData, amount: parseInt(e.target.value) || 0 })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex gap-3 pt-4">
                 <button
                   type="button"
                   onClick={() => { setShowDeductionModal(false); setEditingDeduction(null); }}
-                  className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
                 >
                   {editingDeduction ? 'บันทึก' : 'เพิ่ม'}
                 </button>
@@ -1511,55 +1568,54 @@ export default function ShareGroupDetailPage() {
 
       {/* Open Group Modal */}
       {showOpenModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium">ยืนยันการเปิดวง</h2>
-              <button
-                onClick={() => setShowOpenModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                &#x2715;
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md animate-scale-in">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold">ยืนยันการเปิดวง</h2>
+              <button onClick={() => setShowOpenModal(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
 
             <div className="space-y-4">
-              <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
-                <div className="flex justify-between">
+              <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+                <div className="flex justify-between text-sm">
                   <span className="text-gray-500">วง:</span>
                   <span className="font-medium">{group?.name}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between text-sm">
                   <span className="text-gray-500">ลูกแชร์:</span>
                   <span className="font-medium text-green-600">{group?.members.length}/{group?.maxMembers} คน</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between text-sm">
                   <span className="text-gray-500">งวดทั้งหมด:</span>
                   <span className="font-medium">{rounds.length} งวด</span>
                 </div>
               </div>
 
-              <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded text-sm">
-                <p className="font-medium mb-1">หลังเปิดวงแล้ว:</p>
-                <ul className="list-disc list-inside space-y-1">
+              <div className="bg-amber-50 rounded-xl p-4 text-sm text-amber-700">
+                <p className="font-medium mb-2">หลังเปิดวงแล้ว:</p>
+                <ul className="list-disc list-inside space-y-1 text-amber-600">
                   <li>ไม่สามารถแก้ไขข้อมูลวงได้</li>
                   <li>ไม่สามารถเพิ่ม/ลบลูกแชร์ได้</li>
                   <li>ไม่สามารถแก้ไขรายการหักรับได้</li>
                 </ul>
               </div>
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex gap-3 pt-4">
                 <button
                   type="button"
                   onClick={() => setShowOpenModal(false)}
-                  className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="button"
                   onClick={handleOpenGroup}
-                  className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700"
+                  className="flex-1 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 transition-colors"
                 >
                   เปิดวง
                 </button>
@@ -1571,15 +1627,14 @@ export default function ShareGroupDetailPage() {
 
       {/* Cancel Group Modal */}
       {showCancelModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium">ยืนยันการยกเลิกวง</h2>
-              <button
-                onClick={() => { setShowCancelModal(false); setCancelReason(''); }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                &#x2715;
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md animate-scale-in">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold">ยืนยันการยกเลิกวง</h2>
+              <button onClick={() => { setShowCancelModal(false); setCancelReason(''); }} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
 
@@ -1589,32 +1644,32 @@ export default function ShareGroupDetailPage() {
               </p>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">เหตุผล (ไม่บังคับ)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">เหตุผล (ไม่บังคับ)</label>
                 <textarea
                   value={cancelReason}
                   onChange={(e) => setCancelReason(e.target.value)}
                   rows={3}
                   placeholder="ระบุเหตุผลที่ยกเลิก..."
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
                 />
               </div>
 
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">
+              <div className="bg-red-50 rounded-xl p-4 text-sm text-red-700">
                 การยกเลิกไม่สามารถย้อนกลับได้
               </div>
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex gap-3 pt-4">
                 <button
                   type="button"
                   onClick={() => { setShowCancelModal(false); setCancelReason(''); }}
-                  className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   ไม่ยกเลิก
                 </button>
                 <button
                   type="button"
                   onClick={handleCancelGroup}
-                  className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700"
+                  className="flex-1 py-3 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 transition-colors"
                 >
                   ยกเลิกวง
                 </button>
@@ -1624,77 +1679,64 @@ export default function ShareGroupDetailPage() {
         </div>
       )}
 
-      {/* Round Deductions Modal (Story 6.2) */}
+      {/* Round Deductions Modal */}
       {showRoundDeductionModal && selectedRoundForDeduction && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto animate-scale-in">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold">
                 รายการหักรับ - งวดที่ {selectedRoundForDeduction.roundNumber}
               </h2>
-              <button
-                onClick={() => {
-                  setShowRoundDeductionModal(false);
-                  setSelectedRoundForDeduction(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                &#x2715;
+              <button onClick={() => { setShowRoundDeductionModal(false); setSelectedRoundForDeduction(null); }} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
 
             <div className="space-y-4">
-              {error && (
-                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded text-sm">
-                  {error}
-                </div>
-              )}
-
-              {/* Round Info */}
-              <div className="bg-gray-50 rounded-lg p-3 text-sm">
+              <div className="bg-gray-50 rounded-xl p-4 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-500">กำหนดชำระ:</span>
-                  <span>{new Date(selectedRoundForDeduction.dueDate).toLocaleDateString('th-TH')}</span>
+                  <span>{new Date(selectedRoundForDeduction.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
                 </div>
                 {selectedRoundForDeduction.winner && (
-                  <div className="flex justify-between mt-1">
+                  <div className="flex justify-between mt-2">
                     <span className="text-gray-500">ผู้ชนะ:</span>
                     <span className="font-medium">{selectedRoundForDeduction.winner.nickname}</span>
                   </div>
                 )}
               </div>
 
-              {/* Interest (read-only) */}
               {selectedRoundForDeduction.winningBid !== null && selectedRoundForDeduction.winningBid > 0 && (
-                <div className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
-                  <span className="text-sm font-medium">ดอกเบี้ย</span>
-                  <span className="text-sm text-red-600 font-medium">
+                <div className="flex justify-between items-center p-4 bg-yellow-50 rounded-xl">
+                  <span className="text-sm font-medium text-yellow-700">ดอกเบี้ย</span>
+                  <span className="text-sm text-red-600 font-bold">
                     {selectedRoundForDeduction.winningBid.toLocaleString()} บาท
                   </span>
                 </div>
               )}
 
-              {/* Editable Deductions List */}
               <div>
-                <div className="flex justify-between items-center mb-2">
+                <div className="flex justify-between items-center mb-3">
                   <h3 className="text-sm font-medium text-gray-700">รายการหักรับ</h3>
                   <button
                     type="button"
                     onClick={handleAddDeductionItem}
-                    className="text-sm text-blue-600 hover:text-blue-800"
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium"
                   >
                     + เพิ่มรายการ
                   </button>
                 </div>
                 <div className="space-y-2">
                   {roundDeductionItems.map((item, index) => (
-                    <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded">
+                    <div key={index} className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl">
                       <input
                         type="text"
                         value={item.name}
                         onChange={(e) => handleDeductionItemChange(index, 'name', e.target.value)}
                         placeholder="ชื่อรายการ"
-                        className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded"
+                        className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <input
                         type="number"
@@ -1702,13 +1744,13 @@ export default function ShareGroupDetailPage() {
                         value={item.amount || ''}
                         onChange={(e) => handleDeductionItemChange(index, 'amount', e.target.value)}
                         placeholder="0"
-                        className="w-24 px-2 py-1 text-sm border border-gray-300 rounded text-right"
+                        className="w-28 px-3 py-2 text-sm border border-gray-200 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <span className="text-xs text-gray-500">บาท</span>
                       <button
                         type="button"
                         onClick={() => handleRemoveDeductionItem(index)}
-                        className="text-red-400 hover:text-red-600 p-1"
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1717,59 +1759,46 @@ export default function ShareGroupDetailPage() {
                     </div>
                   ))}
                   {roundDeductionItems.length === 0 && (
-                    <div className="text-center py-4 text-gray-400 text-sm">
+                    <div className="text-center py-6 text-gray-400 text-sm">
                       ยังไม่มีรายการหักรับ
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Summary */}
-              <div className="bg-blue-50 rounded-lg p-4 space-y-2">
+              <div className="bg-blue-50 rounded-xl p-4 space-y-3">
                 <div className="flex justify-between text-sm">
                   <span className="text-blue-600">รวมหักรับ:</span>
-                  <span className="font-medium text-red-600">
-                    {(
-                      (selectedRoundForDeduction.winningBid || 0) +
-                      roundDeductionItems.reduce((sum, d) => sum + (d.amount || 0), 0)
-                    ).toLocaleString()} บาท
+                  <span className="font-bold text-red-600">
+                    {((selectedRoundForDeduction.winningBid || 0) + roundDeductionItems.reduce((sum, d) => sum + (d.amount || 0), 0)).toLocaleString()} บาท
                   </span>
                 </div>
-                <div className="border-t border-blue-200 pt-2">
+                <div className="border-t border-blue-200 pt-3">
                   <div className="flex justify-between text-sm">
                     <span className="text-blue-600">เงินกองกลาง:</span>
-                    <span className="font-medium">
-                      {((group?.principalAmount || 0) * (group?.maxMembers || 0)).toLocaleString()} บาท
-                    </span>
+                    <span className="font-medium">{((group?.principalAmount || 0) * (group?.maxMembers || 0)).toLocaleString()} บาท</span>
                   </div>
-                  <div className="flex justify-between text-sm mt-1">
+                  <div className="flex justify-between text-sm mt-2">
                     <span className="text-green-600 font-medium">ผู้ชนะได้รับ:</span>
-                    <span className="font-bold text-green-600">
-                      {(
-                        (group?.principalAmount || 0) * (group?.maxMembers || 0) -
-                        (selectedRoundForDeduction.winningBid || 0) -
-                        roundDeductionItems.reduce((sum, d) => sum + (d.amount || 0), 0)
-                      ).toLocaleString()} บาท
+                    <span className="font-bold text-green-600 text-lg">
+                      {((group?.principalAmount || 0) * (group?.maxMembers || 0) - (selectedRoundForDeduction.winningBid || 0) - roundDeductionItems.reduce((sum, d) => sum + (d.amount || 0), 0)).toLocaleString()} บาท
                     </span>
                   </div>
                 </div>
               </div>
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex gap-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowRoundDeductionModal(false);
-                    setSelectedRoundForDeduction(null);
-                  }}
-                  className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  onClick={() => { setShowRoundDeductionModal(false); setSelectedRoundForDeduction(null); }}
+                  className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   ปิด
                 </button>
                 <button
                   type="button"
                   onClick={handleSaveRoundDeductions}
-                  className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
                 >
                   บันทึก
                 </button>
@@ -1778,6 +1807,20 @@ export default function ShareGroupDetailPage() {
           </div>
         </div>
       )}
+
+      {/* CSS for animations */}
+      <style>{`
+        @keyframes slide-in {
+          from { transform: translateX(100%); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes scale-in {
+          from { transform: scale(0.95); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+        .animate-slide-in { animation: slide-in 0.3s ease-out; }
+        .animate-scale-in { animation: scale-in 0.2s ease-out; }
+      `}</style>
     </div>
   );
 }

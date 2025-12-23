@@ -25,7 +25,7 @@ async function main() {
     where: { slug: 'demo-share' },
     update: {},
     create: {
-      name: 'วงแชร์ทดสอบ',
+      name: 'วงแชร์ป้าแดง',
       slug: 'demo-share',
       status: 'ACTIVE',
     },
@@ -41,10 +41,10 @@ async function main() {
     update: {},
     create: {
       tenantId: tenant.id,
-      firstName: 'สมชาย',
-      lastName: 'ใจดี',
+      firstName: 'สมศรี',
+      lastName: 'แดงประดิษฐ์',
       phone: '0891234567',
-      email: 'somchai@demo.com',
+      email: 'somsri@demo.com',
       password: tenantPassword,
       role: 'ADMIN',
     },
@@ -59,13 +59,16 @@ async function main() {
   });
   console.log('Old members deleted');
 
-  // Create sample Members (ลูกแชร์)
+  // Create sample Members (ลูกแชร์) - ชื่อสมจริง
   const membersData = [
-    { memberCode: 'A001', nickname: 'พี่เอ', phone: '0891111111', lineId: 'line_a' },
-    { memberCode: 'A002', nickname: 'น้องบี', phone: '0892222222', lineId: null },
-    { memberCode: 'A003', nickname: 'ลุงซี', phone: '0893333333', lineId: 'line_c' },
-    { memberCode: 'A004', nickname: 'ป้าดี', phone: null, lineId: 'line_d' },
-    { memberCode: 'A005', nickname: 'น้าอี', phone: '0895555555', lineId: null },
+    { memberCode: 'M001', nickname: 'ป้าเล็ก', phone: '0891111111', lineId: 'palek99' },
+    { memberCode: 'M002', nickname: 'น้องแอ๋ม', phone: '0892222222', lineId: null },
+    { memberCode: 'M003', nickname: 'ลุงสมบัติ', phone: '0893333333', lineId: 'sombat_share' },
+    { memberCode: 'M004', nickname: 'พี่นก', phone: '0894444444', lineId: 'nok_bird' },
+    { memberCode: 'M005', nickname: 'น้าหมู', phone: '0895555555', lineId: null },
+    { memberCode: 'M006', nickname: 'ป้าจัน', phone: '0896666666', lineId: 'chan_auntie' },
+    { memberCode: 'M007', nickname: 'พี่ต๋อย', phone: null, lineId: 'toy_share' },
+    { memberCode: 'M008', nickname: 'น้องเบล', phone: '0898888888', lineId: null },
   ];
 
   for (const data of membersData) {
@@ -102,21 +105,21 @@ async function main() {
   });
 
   // ====================================================================================
-  // Test Cases สำหรับ Auto-fill (ค่าดูแลวง และ ดอกเบี้ย แสดงเสมอ แม้เป็น 0)
+  // Test Cases สำหรับ Group Info Section (ค่าดูแลวง และ ดอกเบี้ย)
   // ====================================================================================
 
-  // ==================== วงที่ 1: มีทั้ง managementFee และ interestRate ====================
-  // ทดสอบ: ค่าดูแลวง = 500, ดอกเบี้ย = 100 × งวดที่
+  // ==================== วงที่ 1: STEP_INTEREST - มีทั้ง managementFee และ interestRate ====================
+  // Group Info: ค่าดูแลวง 500 บาท | ดอกเบี้ย 100 บาท
   const group1 = await prisma.shareGroup.create({
     data: {
       tenantId: tenant.id,
       hostId: admin.id,
-      name: '1. มีค่าดูแล + มีดอก',
+      name: 'วงออมทรัพย์หมู่บ้าน',
       type: 'STEP_INTEREST',
       maxMembers: 5,
       principalAmount: 10000,
-      managementFee: 500, // ✓ มีค่าดูแลวง
-      interestRate: 100, // ✓ มีดอกเบี้ย
+      managementFee: 500,
+      interestRate: 100,
       cycleType: 'MONTHLY',
       cycleDays: 0,
       startDate: new Date('2025-01-15'),
@@ -131,7 +134,7 @@ async function main() {
   });
 
   const host1 = await prisma.groupMember.create({
-    data: { shareGroupId: group1.id, userId: admin.id, nickname: 'ท้าวแชร์' },
+    data: { shareGroupId: group1.id, userId: admin.id, nickname: 'ป้าแดง (ท้าว)' },
   });
   for (let i = 0; i < 4; i++) {
     await prisma.groupMember.create({
@@ -146,42 +149,43 @@ async function main() {
         shareGroupId: group1.id,
         roundNumber: i,
         dueDate: new Date(date1),
-        status: 'PENDING',
+        status: i === 1 ? 'COMPLETED' : 'PENDING',
         winnerId: i === 1 ? host1.id : null,
       },
     });
     date1.setMonth(date1.getMonth() + 1);
   }
-  console.log('Group 1:', group1.name);
+  console.log('Group 1:', group1.name, '(STEP_INTEREST - มีทั้งค่าดูแลและดอก)');
 
-  // ==================== วงที่ 2: ไม่มี managementFee (แสดง 0) ====================
-  // ทดสอบ: ค่าดูแลวง = 0, ดอกเบี้ย = winningBid
+  // ==================== วงที่ 2: FIXED_INTEREST - มีทั้ง managementFee และ interestRate ====================
+  // Group Info: ค่าดูแลวง 300 บาท | ดอกเบี้ย 150 บาท
   const group2 = await prisma.shareGroup.create({
     data: {
       tenantId: tenant.id,
       hostId: admin.id,
-      name: '2. ไม่มีค่าดูแล (แสดง 0)',
-      type: 'BID_INTEREST',
+      name: 'วงดอกคงที่ตลาดนัด',
+      type: 'FIXED_INTEREST',
       maxMembers: 5,
       principalAmount: 5000,
-      // ไม่มี managementFee → แสดง 0
+      managementFee: 300,
+      interestRate: 150,
       cycleType: 'MONTHLY',
       cycleDays: 0,
-      startDate: new Date('2024-11-01'),
+      startDate: new Date('2025-02-01'),
       status: 'OPEN',
     },
   });
 
   const host2 = await prisma.groupMember.create({
-    data: { shareGroupId: group2.id, userId: admin.id, nickname: 'ท้าวแชร์' },
+    data: { shareGroupId: group2.id, userId: admin.id, nickname: 'ป้าแดง (ท้าว)' },
   });
   for (let i = 0; i < 4; i++) {
     await prisma.groupMember.create({
-      data: { shareGroupId: group2.id, memberId: members[i].id, nickname: members[i].nickname },
+      data: { shareGroupId: group2.id, memberId: members[i + 4].id, nickname: members[i + 4].nickname },
     });
   }
 
-  let date2 = new Date('2024-11-01');
+  let date2 = new Date('2025-02-01');
   for (let i = 1; i <= 5; i++) {
     await prisma.round.create({
       data: {
@@ -190,40 +194,33 @@ async function main() {
         dueDate: new Date(date2),
         status: 'PENDING',
         winnerId: i === 1 ? host2.id : null,
-        winningBid: i === 2 ? 500 : 0, // งวด 2 มียอดประมูล
       },
     });
     date2.setMonth(date2.getMonth() + 1);
   }
-  console.log('Group 2:', group2.name);
+  console.log('Group 2:', group2.name, '(FIXED_INTEREST - มีทั้งค่าดูแลและดอก)');
 
-  // ==================== วงที่ 3: ไม่มี interestRate (แสดง 0) ====================
-  // ทดสอบ: ค่าดูแลวง = 1000, ดอกเบี้ย = 0 (ไม่มี interestRate)
+  // ==================== วงที่ 3: BID_INTEREST - มี managementFee แต่ไม่มี interestRate ====================
+  // Group Info: ค่าดูแลวง 200 บาท | (ไม่แสดงดอกเบี้ย เพราะเป็นประมูล)
   const group3 = await prisma.shareGroup.create({
     data: {
       tenantId: tenant.id,
       hostId: admin.id,
-      name: '3. ไม่มีดอกเบี้ย (แสดง 0)',
-      type: 'STEP_INTEREST',
+      name: 'วงประมูลเพื่อนบ้าน',
+      type: 'BID_INTEREST',
       maxMembers: 5,
-      principalAmount: 20000,
-      managementFee: 1000, // ✓ มีค่าดูแลวง
-      // ไม่มี interestRate → แสดง 0
+      principalAmount: 8000,
+      managementFee: 200,
+      // ไม่มี interestRate - BID_INTEREST ใช้การประมูล
       cycleType: 'MONTHLY',
       cycleDays: 0,
-      startDate: new Date('2024-10-01'),
+      startDate: new Date('2025-01-01'),
       status: 'OPEN',
     },
   });
 
-  await prisma.groupDeductionTemplate.createMany({
-    data: [
-      { shareGroupId: group3.id, name: 'ค่าน้ำชา', amount: 500 },
-    ],
-  });
-
   const host3 = await prisma.groupMember.create({
-    data: { shareGroupId: group3.id, userId: admin.id, nickname: 'ท้าวแชร์' },
+    data: { shareGroupId: group3.id, userId: admin.id, nickname: 'ป้าแดง (ท้าว)' },
   });
   for (let i = 0; i < 4; i++) {
     await prisma.groupMember.create({
@@ -231,63 +228,130 @@ async function main() {
     });
   }
 
-  let date3 = new Date('2024-10-01');
+  let date3 = new Date('2025-01-01');
   for (let i = 1; i <= 5; i++) {
     await prisma.round.create({
       data: {
         shareGroupId: group3.id,
         roundNumber: i,
         dueDate: new Date(date3),
-        status: 'PENDING',
+        status: i <= 2 ? 'COMPLETED' : 'PENDING',
         winnerId: i === 1 ? host3.id : null,
+        winningBid: i === 2 ? 500 : 0,
       },
     });
     date3.setMonth(date3.getMonth() + 1);
   }
-  console.log('Group 3:', group3.name);
+  console.log('Group 3:', group3.name, '(BID_INTEREST - มีค่าดูแล ไม่แสดงดอก)');
 
-  // ==================== วงที่ 4: ไม่มีทั้ง managementFee และ interestRate ====================
-  // ทดสอบ: ค่าดูแลวง = 0, ดอกเบี้ย = 0
+  // ==================== วงที่ 4: STEP_INTEREST - มี interestRate แต่ไม่มี managementFee ====================
+  // Group Info: ค่าดูแลวง 0 บาท | ดอกเบี้ย 50 บาท
   const group4 = await prisma.shareGroup.create({
     data: {
       tenantId: tenant.id,
       hostId: admin.id,
-      name: '4. ไม่มีทั้งคู่ (แสดง 0 ทั้งสอง)',
+      name: 'วงกลุ่มเพื่อนเก่า',
       type: 'STEP_INTEREST',
-      maxMembers: 3,
+      maxMembers: 4,
       principalAmount: 3000,
       // ไม่มี managementFee → แสดง 0
-      // ไม่มี interestRate → แสดง 0
+      interestRate: 50,
       cycleType: 'MONTHLY',
       cycleDays: 0,
-      startDate: new Date('2024-06-01'),
-      status: 'OPEN',
+      startDate: new Date('2025-03-01'),
+      status: 'DRAFT',
     },
   });
 
   const host4 = await prisma.groupMember.create({
-    data: { shareGroupId: group4.id, userId: admin.id, nickname: 'ท้าวแชร์' },
+    data: { shareGroupId: group4.id, userId: admin.id, nickname: 'ป้าแดง (ท้าว)' },
   });
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 3; i++) {
     await prisma.groupMember.create({
       data: { shareGroupId: group4.id, memberId: members[i].id, nickname: members[i].nickname },
     });
   }
 
-  let date4 = new Date('2024-06-01');
-  for (let i = 1; i <= 3; i++) {
+  let date4 = new Date('2025-03-01');
+  for (let i = 1; i <= 4; i++) {
     await prisma.round.create({
       data: {
         shareGroupId: group4.id,
         roundNumber: i,
         dueDate: new Date(date4),
         status: 'PENDING',
-        winnerId: i === 1 ? host4.id : null,
       },
     });
     date4.setMonth(date4.getMonth() + 1);
   }
-  console.log('Group 4:', group4.name);
+  console.log('Group 4:', group4.name, '(STEP_INTEREST - ไม่มีค่าดูแล มีดอก)');
+
+  // ==================== วงที่ 5: STEP_INTEREST - ไม่มีทั้ง managementFee และ interestRate ====================
+  // Group Info: ค่าดูแลวง 0 บาท | ดอกเบี้ย 0 บาท
+  const group5 = await prisma.shareGroup.create({
+    data: {
+      tenantId: tenant.id,
+      hostId: admin.id,
+      name: 'วงเล็กๆ ไม่หักอะไร',
+      type: 'STEP_INTEREST',
+      maxMembers: 3,
+      principalAmount: 1000,
+      // ไม่มี managementFee → แสดง 0
+      // ไม่มี interestRate → แสดง 0
+      cycleType: 'WEEKLY',
+      cycleDays: 7,
+      startDate: new Date('2025-04-01'),
+      status: 'DRAFT',
+    },
+  });
+
+  await prisma.groupMember.create({
+    data: { shareGroupId: group5.id, userId: admin.id, nickname: 'ป้าแดง (ท้าว)' },
+  });
+  for (let i = 0; i < 2; i++) {
+    await prisma.groupMember.create({
+      data: { shareGroupId: group5.id, memberId: members[i].id, nickname: members[i].nickname },
+    });
+  }
+
+  let date5 = new Date('2025-04-01');
+  for (let i = 1; i <= 3; i++) {
+    await prisma.round.create({
+      data: {
+        shareGroupId: group5.id,
+        roundNumber: i,
+        dueDate: new Date(date5),
+        status: 'PENDING',
+      },
+    });
+    date5.setDate(date5.getDate() + 7);
+  }
+  console.log('Group 5:', group5.name, '(STEP_INTEREST - ไม่มีทั้งค่าดูแลและดอก)');
+
+  // ==================== วงที่ 6: BID_INTEREST - ไม่มี managementFee ====================
+  // Group Info: ค่าดูแลวง 0 บาท | (ไม่แสดงดอกเบี้ย เพราะเป็นประมูล)
+  const group6 = await prisma.shareGroup.create({
+    data: {
+      tenantId: tenant.id,
+      hostId: admin.id,
+      name: 'วงประมูลไม่มีค่าดูแล',
+      type: 'BID_INTEREST',
+      maxMembers: 4,
+      principalAmount: 5000,
+      // ไม่มี managementFee → แสดง 0
+      // ไม่มี interestRate - BID_INTEREST ใช้การประมูล
+      cycleType: 'MONTHLY',
+      cycleDays: 0,
+      startDate: new Date('2025-05-01'),
+      status: 'DRAFT',
+    },
+  });
+
+  await prisma.groupMember.create({
+    data: { shareGroupId: group6.id, userId: admin.id, nickname: 'ป้าแดง (ท้าว)' },
+  });
+
+  console.log('Group 6:', group6.name, '(BID_INTEREST - ไม่มีค่าดูแล)');
 
   // ==================== Sample Notifications ====================
   await prisma.notification.deleteMany({
@@ -301,26 +365,26 @@ async function main() {
   console.log('Tenant Admin: demo-share / 0891234567 / password123');
   console.log('');
   console.log('========================================');
-  console.log('Test Cases: Auto-fill (แสดงเสมอ แม้เป็น 0)');
+  console.log('Test Cases: Group Info Section');
   console.log('========================================');
   console.log('');
-  console.log('1. มีค่าดูแล + มีดอก');
-  console.log('   ค่าดูแลวง: 500  |  ดอกเบี้ย: 100×งวด');
-  console.log('   → งวด 1: ค่าดูแล 500, ดอก 0');
-  console.log('   → งวด 2: ค่าดูแล 500, ดอก 200');
+  console.log('1. วงออมทรัพย์หมู่บ้าน (STEP_INTEREST)');
+  console.log('   → ค่าดูแลวง: 500 บาท | ดอกเบี้ย: 100 บาท');
   console.log('');
-  console.log('2. ไม่มีค่าดูแล (แสดง 0)');
-  console.log('   ค่าดูแลวง: 0  |  ดอกเบี้ย: winningBid');
-  console.log('   → งวด 1: ค่าดูแล 0, ดอก 0');
-  console.log('   → งวด 2: ค่าดูแล 0, ดอก 500');
+  console.log('2. วงดอกคงที่ตลาดนัด (FIXED_INTEREST)');
+  console.log('   → ค่าดูแลวง: 300 บาท | ดอกเบี้ย: 150 บาท');
   console.log('');
-  console.log('3. ไม่มีดอกเบี้ย (แสดง 0)');
-  console.log('   ค่าดูแลวง: 1000  |  ดอกเบี้ย: 0 (ไม่มี interestRate)');
-  console.log('   → งวด 2: ค่าดูแล 1000, ดอก 0');
+  console.log('3. วงประมูลเพื่อนบ้าน (BID_INTEREST)');
+  console.log('   → ค่าดูแลวง: 200 บาท | ไม่แสดงดอกเบี้ย');
   console.log('');
-  console.log('4. ไม่มีทั้งคู่ (แสดง 0 ทั้งสอง)');
-  console.log('   ค่าดูแลวง: 0  |  ดอกเบี้ย: 0');
-  console.log('   → งวด 2: ค่าดูแล 0, ดอก 0');
+  console.log('4. วงกลุ่มเพื่อนเก่า (STEP_INTEREST)');
+  console.log('   → ค่าดูแลวง: 0 บาท | ดอกเบี้ย: 50 บาท');
+  console.log('');
+  console.log('5. วงเล็กๆ ไม่หักอะไร (STEP_INTEREST)');
+  console.log('   → ค่าดูแลวง: 0 บาท | ดอกเบี้ย: 0 บาท');
+  console.log('');
+  console.log('6. วงประมูลไม่มีค่าดูแล (BID_INTEREST)');
+  console.log('   → ค่าดูแลวง: 0 บาท | ไม่แสดงดอกเบี้ย');
   console.log('========================================\n');
 }
 
