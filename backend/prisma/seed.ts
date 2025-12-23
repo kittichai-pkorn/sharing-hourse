@@ -159,7 +159,7 @@ async function main() {
   console.log('Group 1 (STEP_INTEREST - DRAFT):', group1.name);
 
   // ==================== วงที่ 2: BID_INTEREST (ประมูลดอก) - OPEN กำลังดำเนินการ ====================
-  // ทดสอบ: ดอกเบี้ย = winningBid (ยอดประมูลที่ชนะ)
+  // ทดสอบ: ไม่มี managementFee - ค่าดูแลวงไม่ควร auto-fill
   // เงินต้น 5,000 × 5 คน = 25,000 บาท/งวด
   const group2 = await prisma.shareGroup.create({
     data: {
@@ -169,7 +169,7 @@ async function main() {
       type: 'BID_INTEREST',
       maxMembers: 5,
       principalAmount: 5000, // คนละ 5,000 บาท
-      managementFee: 300, // ค่าดูแลวง 300 บาท
+      // ไม่มี managementFee - ทดสอบว่าไม่ auto-fill ค่าดูแลวง
       cycleType: 'MONTHLY',
       cycleDays: 0,
       startDate: new Date('2024-11-01'),
@@ -198,9 +198,9 @@ async function main() {
     // งวด 1: host ได้ (ประมูล 0), งวด 2: พี่เอ ได้ (ประมูล 500)
     const winningBidAmount = i === 1 ? 0 : (i === 2 ? 500 : 0);
     // เงินกองกลาง = 5,000 × 5 = 25,000
-    // หัก: ค่าดูแลวง 300 + ดอกประมูล
+    // หัก: ดอกประมูลเท่านั้น (ไม่มีค่าดูแลวง)
     const poolAmount = 5000 * 5; // 25,000
-    const payoutAmt = isCompleted ? poolAmount - 300 - winningBidAmount : null;
+    const payoutAmt = isCompleted ? poolAmount - winningBidAmount : null;
 
     const round = await prisma.round.create({
       data: {
@@ -214,16 +214,11 @@ async function main() {
       },
     });
 
-    // บันทึกรายการหักสำหรับงวดที่เสร็จ
-    if (isCompleted) {
+    // บันทึกรายการหักสำหรับงวดที่เสร็จ (เฉพาะดอกประมูล ไม่มีค่าดูแลวง)
+    if (isCompleted && winningBidAmount > 0) {
       await prisma.deduction.create({
-        data: { roundId: round.id, type: 'OTHER', amount: 300, note: 'ค่าดูแลวง' },
+        data: { roundId: round.id, type: 'INTEREST', amount: winningBidAmount, note: 'ดอกประมูล' },
       });
-      if (winningBidAmount > 0) {
-        await prisma.deduction.create({
-          data: { roundId: round.id, type: 'INTEREST', amount: winningBidAmount, note: 'ดอกประมูล' },
-        });
-      }
     }
 
     date2.setMonth(date2.getMonth() + 1);
@@ -313,7 +308,7 @@ async function main() {
   console.log('Group 3 (FIXED_INTEREST - OPEN):', group3.name);
 
   // ==================== วงที่ 4: STEP_INTEREST - COMPLETED (เสร็จสิ้น) ====================
-  // วงเล็ก 3 คน เสร็จแล้ว
+  // วงเล็ก 3 คน เสร็จแล้ว - ไม่มีค่าดูแลวง
   const group4 = await prisma.shareGroup.create({
     data: {
       tenantId: tenant.id,
@@ -322,7 +317,7 @@ async function main() {
       type: 'STEP_INTEREST',
       maxMembers: 3,
       principalAmount: 3000, // คนละ 3,000 บาท
-      managementFee: 150, // ค่าดูแลวง 150 บาท
+      // ไม่มี managementFee
       interestRate: 50, // ดอก 50 บาท × งวดที่
       cycleType: 'WEEKLY',
       cycleDays: 0,
@@ -345,14 +340,14 @@ async function main() {
     group4Members.push(gm);
   }
 
-  // ทุกงวดเสร็จ
+  // ทุกงวดเสร็จ - ไม่มีค่าดูแลวง หักเฉพาะดอกเบี้ย
   let date4 = new Date('2024-06-01');
   for (let i = 1; i <= 3; i++) {
     // เงินกองกลาง = 3,000 × 3 = 9,000
-    // หัก: ค่าดูแลวง 150 + ดอก (50 × งวดที่)
+    // หัก: ดอก (50 × งวดที่) เท่านั้น ไม่มีค่าดูแลวง
     const poolAmount = 3000 * 3; // 9,000
     const interestAmt = i === 1 ? 0 : 50 * i; // งวด 1=0, งวด 2=100, งวด 3=150
-    const payoutAmt = poolAmount - 150 - interestAmt;
+    const payoutAmt = poolAmount - interestAmt;
 
     const round = await prisma.round.create({
       data: {
@@ -366,10 +361,7 @@ async function main() {
       },
     });
 
-    // บันทึกรายการหัก
-    await prisma.deduction.create({
-      data: { roundId: round.id, type: 'OTHER', amount: 150, note: 'ค่าดูแลวง' },
-    });
+    // บันทึกรายการหัก - เฉพาะดอกเบี้ย (ไม่มีค่าดูแลวง)
     if (interestAmt > 0) {
       await prisma.deduction.create({
         data: { roundId: round.id, type: 'INTEREST', amount: interestAmt, note: `ดอกเบี้ย (50×${i})` },
@@ -494,21 +486,24 @@ async function main() {
   console.log('\n--- Test Share Groups ---');
   console.log('1. วงดอกขั้นบันได (STEP) - DRAFT พร้อมเปิด');
   console.log('   - สมาชิกครบ 5/5 คน, เงินต้น 10,000 บาท/คน = 50,000/งวด');
-  console.log('   - ดอก 100 บาท × งวดที่, ค่าดูแล 500, หักท้ายท้าว 200');
+  console.log('   - ดอก 100×งวดที่, ค่าดูแล 500 ✓, หักท้ายท้าว 200');
   console.log('');
   console.log('2. วงประมูลดอก (BID) - OPEN กำลังดำเนินการ');
   console.log('   - เสร็จ 2/5 งวด, เงินต้น 5,000 บาท/คน = 25,000/งวด');
-  console.log('   - ดอกจากประมูล, ค่าดูแล 300');
+  console.log('   - ดอกจากประมูล, ไม่มีค่าดูแล ✗');
   console.log('');
   console.log('3. วงดอกคงที่ (FIXED) - OPEN กำลังดำเนินการ');
   console.log('   - เสร็จ 3/5 งวด, เงินต้น 20,000 บาท/คน = 100,000/งวด');
-  console.log('   - ดอกคงที่ 2,000, ค่าดูแล 1,000, ค่าน้ำชา 500');
+  console.log('   - ดอกคงที่ 2,000, ค่าดูแล 1,000 ✓, ค่าน้ำชา 500');
   console.log('');
   console.log('4. วงขั้นบันไดเสร็จแล้ว - COMPLETED');
-  console.log('   - เสร็จ 3/3 งวด (รายสัปดาห์)');
+  console.log('   - เสร็จ 3/3 งวด (รายสัปดาห์), ไม่มีค่าดูแล ✗');
   console.log('');
   console.log('5. วงใหม่ (สมาชิกไม่ครบ) - DRAFT');
-  console.log('   - สมาชิก 3/10 คน -> ไม่สามารถเปิดได้');
+  console.log('   - สมาชิก 3/10 คน, ค่าดูแล 200 ✓');
+  console.log('');
+  console.log('✓ = มี managementFee (auto-fill ค่าดูแลวง)');
+  console.log('✗ = ไม่มี managementFee (ไม่ auto-fill)');
   console.log('========================================\n');
 }
 
