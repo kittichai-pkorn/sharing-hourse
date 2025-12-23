@@ -1943,6 +1943,32 @@ export default function ShareGroupDetailPage() {
                     <div className="text-center py-12 text-gray-500">ไม่สามารถโหลดข้อมูลได้</div>
                   ) : (
                     <>
+                      {/* First Round Special Banner - Host receives money */}
+                      {selectedRoundForDeduction.roundNumber === 1 && (
+                        <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl p-4 border border-yellow-200">
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="w-10 h-10 rounded-full bg-yellow-400 flex items-center justify-center">
+                              <span className="text-xl">🎉</span>
+                            </div>
+                            <div>
+                              <div className="font-semibold text-yellow-800">งวดแรก - ท้าวได้รับเงิน</div>
+                              <div className="text-sm text-yellow-700">
+                                {roundPaymentsData.payments.find(p => p.isHost)?.nickname || 'ท้าว'} (ท้าว)
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-3 p-3 bg-white/60 rounded-lg">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-yellow-700">ได้รับเงิน:</span>
+                              <span className="font-bold text-lg text-green-600">
+                                {((group?.principalAmount || 0) * (group?.maxMembers || 0)).toLocaleString()} บาท
+                              </span>
+                            </div>
+                            <div className="text-xs text-yellow-600 mt-1">(ไม่ต้องชำระเงินในงวดนี้)</div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Payment Summary */}
                       <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-4">
                         <div className="flex justify-between items-center">
@@ -1967,7 +1993,15 @@ export default function ShareGroupDetailPage() {
 
                       {/* Payment List */}
                       <div className="space-y-2">
-                        {roundPaymentsData.payments.map((payment) => (
+                        {roundPaymentsData.payments
+                          .filter(payment => {
+                            // For round 1, don't show host in payment list (host receives, doesn't pay)
+                            if (selectedRoundForDeduction.roundNumber === 1 && payment.isHost) {
+                              return false;
+                            }
+                            return true;
+                          })
+                          .map((payment) => (
                           <div
                             key={payment.groupMemberId}
                             className={`p-4 rounded-xl border transition-all ${
