@@ -89,7 +89,7 @@ export default function ShareGroupDetailPage() {
   });
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [activeTab, setActiveTab] = useState<'members' | 'rounds' | 'deductions' | 'summary'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'rounds' | 'summary'>('members');
 
   // Deduction states
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -619,16 +619,6 @@ export default function ShareGroupDetailPage() {
               งวด ({rounds.filter(r => r.winnerId).length}/{rounds.length})
             </button>
             <button
-              onClick={() => setActiveTab('deductions')}
-              className={`px-6 py-4 text-sm font-medium ${
-                activeTab === 'deductions'
-                  ? 'border-b-2 border-blue-500 text-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              รายการหักรับ ({group.deductionTemplates?.length || 0})
-            </button>
-            <button
               onClick={() => setActiveTab('summary')}
               className={`px-6 py-4 text-sm font-medium ${
                 activeTab === 'summary'
@@ -850,112 +840,6 @@ export default function ShareGroupDetailPage() {
                     ))}
                   </tbody>
                 </table>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Deductions Tab */}
-        {activeTab === 'deductions' && (
-          <div className="p-6">
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h3 className="text-lg font-medium">รายการหักรับ</h3>
-                <p className="text-sm text-gray-500">รายการที่จะหักจากผู้ชนะทุกงวด</p>
-              </div>
-              {group.status === 'DRAFT' && (
-                <button
-                  onClick={openAddDeductionModal}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
-                >
-                  + เพิ่มรายการ
-                </button>
-              )}
-            </div>
-
-            {group.status !== 'DRAFT' && (
-              <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded mb-4 text-sm">
-                ไม่สามารถแก้ไขรายการหักรับหลังเปิดวงแล้ว
-              </div>
-            )}
-
-            {!group.deductionTemplates || group.deductionTemplates.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                ยังไม่มีรายการหักรับ
-              </div>
-            ) : (
-              <>
-                <table className="min-w-full divide-y divide-gray-200 mb-4">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">รายการ</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">จำนวน</th>
-                      {group.status === 'DRAFT' && (
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">จัดการ</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {group.deductionTemplates.map((deduction) => (
-                      <tr key={deduction.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {deduction.name}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                          {deduction.amount.toLocaleString()} บาท
-                        </td>
-                        {group.status === 'DRAFT' && (
-                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                            <button
-                              onClick={() => openEditDeductionModal(deduction)}
-                              className="text-blue-600 hover:text-blue-900 mr-3"
-                            >
-                              แก้ไข
-                            </button>
-                            <button
-                              onClick={() => handleDeleteDeduction(deduction.id)}
-                              className="text-red-600 hover:text-red-900"
-                            >
-                              ลบ
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-gray-50">
-                    <tr>
-                      <td className="px-6 py-3 text-sm font-medium text-gray-900">รวมหักรับต่องวด</td>
-                      <td className="px-6 py-3 text-sm text-right font-medium text-red-600">
-                        {getTotalDeductions().toLocaleString()} บาท
-                      </td>
-                      {group.status === 'DRAFT' && <td></td>}
-                    </tr>
-                  </tfoot>
-                </table>
-
-                {/* Preview payout */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-blue-800 mb-2">ตัวอย่างเงินที่ผู้ชนะจะได้รับ</h4>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-blue-600">เงินกองกลาง:</span>
-                      <span className="font-medium">{(group.principalAmount * group.maxMembers).toLocaleString()} บาท</span>
-                    </div>
-                    <div className="flex justify-between text-red-600">
-                      <span>- รายการหักรับ:</span>
-                      <span>-{getTotalDeductions().toLocaleString()} บาท</span>
-                    </div>
-                    <div className="flex justify-between text-gray-500">
-                      <span>- ดอกเบี้ย (ถ้ามี):</span>
-                      <span>ขึ้นอยู่กับการประมูล</span>
-                    </div>
-                    <div className="border-t border-blue-200 pt-1 flex justify-between font-medium text-green-600">
-                      <span>ได้รับสูงสุด:</span>
-                      <span>{((group.principalAmount * group.maxMembers) - getTotalDeductions()).toLocaleString()} บาท</span>
-                    </div>
-                  </div>
-                </div>
               </>
             )}
           </div>
