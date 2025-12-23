@@ -102,6 +102,7 @@ async function main() {
   });
 
   // ==================== วงที่ 1: DRAFT (สมาชิกครบ - พร้อมเปิด) ====================
+  // ทดสอบ: มี managementFee และ template - auto-fill ควรแสดงทั้งสองอย่าง
   const group1 = await prisma.shareGroup.create({
     data: {
       tenantId: tenant.id,
@@ -110,6 +111,8 @@ async function main() {
       type: 'STEP_INTEREST',
       maxMembers: 5,
       principalAmount: 1000,
+      managementFee: 100, // ค่าดูแลวง auto-fill
+      interestRate: 50, // ดอกเบี้ยขั้นบันได (STEP_INTEREST)
       cycleType: 'MONTHLY',
       cycleDays: 0,
       startDate: new Date('2025-01-15'),
@@ -117,10 +120,9 @@ async function main() {
     },
   });
 
-  // Add deduction templates
+  // Add deduction templates (ไม่มี ค่าดูแลวง เพราะจะ auto จาก managementFee)
   await prisma.groupDeductionTemplate.createMany({
     data: [
-      { shareGroupId: group1.id, name: 'ค่าดูแลวง', amount: 100 },
       { shareGroupId: group1.id, name: 'หักท้ายท้าว', amount: 50 },
     ],
   });
