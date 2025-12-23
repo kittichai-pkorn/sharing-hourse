@@ -1,8 +1,8 @@
 # Sprint 4: Epic 5 - จัดการงวด
 
 **Period:** Dec 2024
-**Goal:** Rounds Timeline และ Record Winner
-**Status:** 🔄 In Progress
+**Goal:** Rounds Management, Payments, Deductions
+**Status:** ✅ Completed
 
 ---
 
@@ -15,8 +15,12 @@
 | 5.3 | บันทึกผู้ชนะ | P0 | 5 | ✅ Done | 100% |
 | 5.4 | งวดแรก (ท้าวแชร์) | P1 | 2 | ✅ Done | 100% |
 | 5.5 | งวดสุดท้าย | P1 | 2 | ✅ Done | 100% |
+| 5.6 | ตารางชำระทั้งหมด | P1 | 3 | ✅ Done | 100% |
+| 5.7 | บันทึกการชำระเงิน | P1 | 3 | ✅ Done | 100% |
+| 5.8 | แก้ไขดอกเบี้ยงวด | P2 | 1 | ✅ Done | 100% |
+| 5.9 | แสดงผลการชำระงวดแรก | P1 | 1 | ✅ Done | 100% |
 
-**Total Points:** 14 | **Completed:** 14 | **Progress:** 100%
+**Total Points:** 22 | **Completed:** 22 | **Progress:** 100%
 
 ---
 
@@ -84,31 +88,75 @@
 
 ---
 
+### 5.6 ตารางชำระทั้งหมด ✅
+
+| Acceptance Criteria | Status |
+|---------------------|--------|
+| แสดงตารางชำระรายบุคคล (matrix view) | ✅ |
+| แสดงสถานะ PENDING/PAID/WON | ✅ |
+| สรุปยอดชำระต่อคน | ✅ |
+| ปุ่มคัดลอกข้อความ | ✅ |
+| ปุ่มแชร์ไปยัง LINE | ✅ |
+| ปุ่มอยู่ใน header ถัดจาก tabs | ✅ |
+
+---
+
+### 5.7 บันทึกการชำระเงิน ✅
+
+| Acceptance Criteria | Status |
+|---------------------|--------|
+| แสดงรายชื่อลูกแชร์ที่ต้องชำระในแต่ละงวด | ✅ |
+| สามารถ tick ✓ ว่าลูกแชร์คนนั้นชำระแล้ว | ✅ |
+| แสดงสถานะ: ยังไม่ชำระ / ชำระแล้ว | ✅ |
+| แสดงจำนวนคนที่ชำระแล้ว / ทั้งหมด | ✅ |
+| สามารถยกเลิกการชำระได้ (กรณีบันทึกผิด) | ✅ |
+| บันทึกวันที่และเวลาที่ชำระ | ✅ |
+| Tab "การชำระเงิน" ใน Round Modal | ✅ |
+
+---
+
+### 5.8 แก้ไขดอกเบี้ยงวด ✅
+
+| Acceptance Criteria | Status |
+|---------------------|--------|
+| คลิกแก้ไขดอกเบี้ยในตารางงวดได้ (inline edit) | ✅ |
+| แสดงค่าดอกเบี้ยที่คำนวณอัตโนมัติเป็นค่าเริ่มต้น | ✅ |
+| บันทึกดอกเบี้ยที่แก้ไขลง database | ✅ |
+| แสดงดอกเบี้ยที่แก้ไขแล้วในตาราง | ✅ |
+| แก้ไขดอกเบี้ยใน Modal สำหรับ BID_INTEREST | ✅ |
+
+---
+
+### 5.9 แสดงผลการชำระงวดแรก ✅
+
+| Acceptance Criteria | Status |
+|---------------------|--------|
+| งวดแรก: แสดง banner "ท้าวได้รับเงิน" | ✅ |
+| งวดแรก: ท้าวไม่แสดงในรายการชำระ | ✅ |
+| งวดอื่น: แสดง banner "ผู้เปียงวดนี้" | ✅ |
+| งวดอื่น: ผู้เปียไม่แสดงในรายการชำระ | ✅ |
+| ท้าวแสดงแยกด้วยสีม่วง (ไม่ต้องชำระ) | ✅ |
+
+---
+
 ## Schema Changes
 
-ใช้ Model ที่มีอยู่แล้ว:
-
 ```prisma
-model Round {
-  id            Int         @id @default(autoincrement())
-  shareGroupId  Int
-  roundNumber   Int
-  dueDate       DateTime
-  winnerId      Int?        // GroupMember who won this round
-  winningBid    Float?      // ยอดประมูลที่ชนะ
-  status        RoundStatus @default(PENDING)
-  payoutAmount  Float?      // จำนวนเงินที่ได้รับ
+// เพิ่มใหม่ใน Sprint นี้
+model RoundPayment {
+  id            Int       @id @default(autoincrement())
+  roundId       Int
+  groupMemberId Int
+  amount        Float
+  paidAt        DateTime?
+  note          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  shareGroup ShareGroup   @relation(...)
-  winner     GroupMember? @relation("RoundWinner", ...)
-  deductions Deduction[]
-}
+  round       Round       @relation(...)
+  groupMember GroupMember @relation(...)
 
-enum RoundStatus {
-  PENDING
-  IN_PROGRESS
-  COMPLETED
-  SKIPPED
+  @@unique([roundId, groupMemberId])
 }
 ```
 
@@ -118,11 +166,14 @@ enum RoundStatus {
 
 | File | Change |
 |------|--------|
-| `backend/src/routes/rounds.ts` | **NEW** - Rounds API |
-| `backend/src/index.ts` | Added rounds routes |
-| `backend/src/routes/dashboard.ts` | Fixed round status queries |
-| `backend/src/routes/share-groups.ts` | Fixed member rounds relation |
-| `frontend/src/pages/dashboard/ShareGroupDetailPage.tsx` | Added Tabs, Timeline, Record Winner Modal |
+| `backend/prisma/schema.prisma` | Added RoundPayment model |
+| `backend/src/routes/rounds.ts` | Added payment APIs, interest update |
+| `backend/src/routes/share-groups.ts` | Added payment schedule API |
+| `frontend/src/pages/dashboard/ShareGroupDetailPage.tsx` | Payment tab, inline edit, winner banner |
+| `docs/stories/epic-5-rounds/5.6-payment-schedule.md` | NEW |
+| `docs/stories/epic-5-rounds/5.7-record-payment.md` | NEW |
+| `docs/stories/epic-5-rounds/5.8-edit-round-interest.md` | NEW |
+| `docs/stories/epic-5-rounds/5.9-first-round-payment-display.md` | NEW |
 
 ---
 
@@ -132,8 +183,13 @@ enum RoundStatus {
 |--------|----------|-------------|
 | GET | `/api/rounds/group/:groupId` | Get all rounds for a group |
 | GET | `/api/rounds/:id` | Get round detail |
+| PUT | `/api/rounds/:id` | Update round (dueDate, winnerId, interest) |
 | POST | `/api/rounds/:id/winner` | Record winner |
 | POST | `/api/rounds/generate/:groupId` | Generate rounds for a group |
+| GET | `/api/rounds/:roundId/payments` | Get payment status for round |
+| POST | `/api/rounds/:roundId/payments` | Bulk save payments |
+| PUT | `/api/rounds/:roundId/payments/:groupMemberId` | Update single payment |
+| GET | `/api/share-groups/:id/payment-schedule` | Get full payment schedule |
 
 ---
 
@@ -145,11 +201,24 @@ enum RoundStatus {
 
 ---
 
-## Next Sprint
+## Commits
 
-- [ ] Epic 6: หักเงิน (Deductions)
-- [ ] Epic 7: เปิด/ปิดวง (Group Status)
+| Hash | Message |
+|------|---------|
+| 7db842d | feat: add payment recording and inline interest editing |
+| d868b64 | feat: add interest editing in modal for BID_INTEREST type |
+| 976d675 | feat: improve first round payment display |
+| 8e390fe | feat: apply winner banner to all rounds in payment tab |
+| f217eb7 | feat: disable host payment checkbox in all rounds |
+| b9620f9 | feat: improve host row UX with purple styling |
 
 ---
 
-*Last updated: Dec 22, 2024*
+## Next Sprint
+
+- [ ] Epic 6: รายงาน (Reports)
+- [ ] Epic 7: แจ้งเตือน (Notifications)
+
+---
+
+*Last updated: Dec 23, 2024*
