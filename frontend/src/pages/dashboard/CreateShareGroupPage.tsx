@@ -322,10 +322,6 @@ export default function CreateShareGroupPage() {
                     : cycleTypeLabels[formData.cycleType]}
                 </span>
               </div>
-              <div>
-                <span className="text-gray-500">เริ่มต้น:</span>
-                <span className="ml-2 font-medium">{new Date(formData.startDate).toLocaleDateString('th-TH')}</span>
-              </div>
               {formData.managementFee && (
                 <div>
                   <span className="text-gray-500">ค่าดูแลวง:</span>
@@ -342,7 +338,7 @@ export default function CreateShareGroupPage() {
 
             <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-md p-3">
               <p className="text-sm text-yellow-800">
-                หลังบันทึกแล้วจะแก้ไขบางข้อมูลไม่ได้
+                ⚠️ หลังบันทึกแล้วจะแก้ไขบางข้อมูลไม่ได้
               </p>
             </div>
           </div>

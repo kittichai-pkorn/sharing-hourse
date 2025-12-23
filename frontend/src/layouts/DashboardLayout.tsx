@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
+import NotificationCenter from '../components/NotificationCenter';
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
@@ -25,7 +26,8 @@ export default function DashboardLayout() {
   const navItems = [
     { path: '/dashboard', label: 'Dashboard' },
     { path: '/share-groups', label: 'วงแชร์' },
-    { path: '/users', label: 'สมาชิก' },
+    { path: '/members', label: 'ลูกแชร์' },
+    { path: '/users', label: 'ผู้ใช้ระบบ' },
     { path: '/profile', label: 'โปรไฟล์' },
   ];
 
@@ -58,6 +60,7 @@ export default function DashboardLayout() {
           </div>
 
           <div className="flex items-center gap-4">
+            <NotificationCenter />
             <span className="text-sm text-gray-600">
               {user?.firstName} {user?.lastName}
             </span>

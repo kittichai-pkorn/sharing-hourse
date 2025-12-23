@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import prisma from '../utils/prisma.js';
 import { authMiddleware, adminMiddleware } from '../middlewares/auth.js';
+import { notifyGroupOpened } from '../services/notificationService.js';
 
 const router = Router();
 
@@ -9,6 +10,11 @@ const router = Router();
 const deductionTemplateSchema = z.object({
   name: z.string().min(1, 'กรุณากรอกชื่อรายการ'),
   amount: z.number().min(0, 'จำนวนเงินต้องไม่ติดลบ'),
+});
+
+const roundScheduleSchema = z.object({
+  roundNumber: z.number(),
+  dueDate: z.string(),
 });
 
 const createGroupSchema = z.object({
@@ -22,6 +28,7 @@ const createGroupSchema = z.object({
   cycleDays: z.number().optional(),
   startDate: z.string(),
   deductionTemplates: z.array(deductionTemplateSchema).optional(),
+  rounds: z.array(roundScheduleSchema).optional(), // Custom round dates
 });
 
 // GET /api/share-groups - List all share groups for tenant
@@ -119,6 +126,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
         },
         members: {
           include: {
+            member: true,
             user: {
               select: {
                 id: true,
@@ -133,7 +141,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
               },
             },
           },
-          orderBy: { memberCode: 'asc' },
+          orderBy: { joinedAt: 'asc' },
         },
         rounds: {
           orderBy: { roundNumber: 'asc' },
@@ -220,17 +228,53 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
         });
       }
 
-      // Generate rounds automatically
-      const rounds = [];
+      // Create host as first member (ท้าวแชร์)
+      const hostMember = await tx.groupMember.create({
+        data: {
+          shareGroupId: newGroup.id,
+          userId: req.user!.userId,
+          nickname: 'ท้าวแชร์',
+        },
+      });
+
+      // Generate rounds - use custom dates if provided, otherwise calculate
+      const customRounds = data.rounds || [];
+      const getCustomDate = (roundNum: number) => {
+        const custom = customRounds.find(r => r.roundNumber === roundNum);
+        return custom ? new Date(custom.dueDate) : null;
+      };
+
       let currentDate = new Date(data.startDate);
       const cycleType = data.cycleType || 'MONTHLY';
       const cycleDays = data.cycleDays || 0;
 
-      for (let i = 1; i <= data.maxMembers; i++) {
-        rounds.push({
+      // Create first round assigned to host (งวดแรก = ท้าวแชร์ได้เงินเสมอ)
+      await tx.round.create({
+        data: {
+          shareGroupId: newGroup.id,
+          roundNumber: 1,
+          dueDate: getCustomDate(1) || new Date(currentDate),
+          status: 'PENDING',
+          winnerId: hostMember.id,
+        },
+      });
+
+      // Calculate next due date for remaining rounds
+      if (cycleType === 'DAILY') {
+        currentDate.setDate(currentDate.getDate() + (cycleDays || 1));
+      } else if (cycleType === 'WEEKLY') {
+        currentDate.setDate(currentDate.getDate() + 7);
+      } else {
+        currentDate.setMonth(currentDate.getMonth() + 1);
+      }
+
+      // Create remaining rounds (round 2 onwards)
+      const remainingRounds = [];
+      for (let i = 2; i <= data.maxMembers; i++) {
+        remainingRounds.push({
           shareGroupId: newGroup.id,
           roundNumber: i,
-          dueDate: new Date(currentDate),
+          dueDate: getCustomDate(i) || new Date(currentDate),
           status: 'PENDING' as const,
         });
 
@@ -240,14 +284,15 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
         } else if (cycleType === 'WEEKLY') {
           currentDate.setDate(currentDate.getDate() + 7);
         } else {
-          // MONTHLY
           currentDate.setMonth(currentDate.getMonth() + 1);
         }
       }
 
-      await tx.round.createMany({
-        data: rounds,
-      });
+      if (remainingRounds.length > 0) {
+        await tx.round.createMany({
+          data: remainingRounds,
+        });
+      }
 
       // Return group with relations
       return tx.shareGroup.findUnique({
@@ -419,6 +464,638 @@ router.delete('/:id', authMiddleware, adminMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error('Delete share group error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// ==================== Group Status Management ====================
+
+// POST /api/share-groups/:id/open - Open a share group
+router.post('/:id/open', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const group = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(id),
+        tenantId: req.user!.tenantId,
+      },
+      include: {
+        members: true,
+        rounds: true,
+      },
+    });
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    if (group.status !== 'DRAFT') {
+      return res.status(400).json({
+        success: false,
+        error: 'ไม่สามารถเปิดวงที่ไม่ใช่สถานะร่าง',
+      });
+    }
+
+    // Check if members are complete
+    if (group.members.length < group.maxMembers) {
+      return res.status(400).json({
+        success: false,
+        error: `สมาชิกไม่ครบ (${group.members.length}/${group.maxMembers} คน)`,
+      });
+    }
+
+    // Check if rounds exist
+    if (group.rounds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'ยังไม่มีตารางงวด กรุณาสร้างตารางงวดก่อน',
+      });
+    }
+
+    // Update status to OPEN
+    const updatedGroup = await prisma.shareGroup.update({
+      where: { id: parseInt(id) },
+      data: { status: 'OPEN' },
+      include: {
+        members: {
+          include: {
+            member: true,
+          },
+        },
+        rounds: {
+          orderBy: { roundNumber: 'asc' },
+        },
+      },
+    });
+
+    // Create notification for group opened
+    try {
+      await notifyGroupOpened({
+        id: group.id,
+        name: group.name,
+        tenantId: group.tenantId,
+        hostId: group.hostId,
+      });
+    } catch (notifyError) {
+      console.error('Notification error:', notifyError);
+      // Don't fail the request if notification fails
+    }
+
+    res.json({
+      success: true,
+      data: updatedGroup,
+      message: 'เปิดวงเรียบร้อยแล้ว',
+    });
+  } catch (error) {
+    console.error('Open share group error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// POST /api/share-groups/:id/cancel - Cancel a share group
+router.post('/:id/cancel', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const group = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(id),
+        tenantId: req.user!.tenantId,
+      },
+    });
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    if (group.status !== 'DRAFT') {
+      return res.status(400).json({
+        success: false,
+        error: 'ไม่สามารถยกเลิกวงที่เปิดแล้วได้',
+      });
+    }
+
+    // Update status to CANCELLED
+    const updatedGroup = await prisma.shareGroup.update({
+      where: { id: parseInt(id) },
+      data: {
+        status: 'CANCELLED',
+        // Note: If you want to store reason, add cancelReason field to schema
+      },
+    });
+
+    res.json({
+      success: true,
+      data: updatedGroup,
+      message: 'ยกเลิกวงเรียบร้อยแล้ว',
+    });
+  } catch (error) {
+    console.error('Cancel share group error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// ==================== Deduction Templates ====================
+
+// GET /api/share-groups/:id/deductions - List deduction templates
+router.get('/:id/deductions', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const group = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(id),
+        tenantId: req.user!.tenantId,
+      },
+      include: {
+        deductionTemplates: {
+          orderBy: { id: 'asc' },
+        },
+      },
+    });
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    const total = group.deductionTemplates.reduce((sum, d) => sum + d.amount, 0);
+
+    res.json({
+      success: true,
+      data: {
+        templates: group.deductionTemplates,
+        total,
+      },
+    });
+  } catch (error) {
+    console.error('Get deduction templates error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// POST /api/share-groups/:id/deductions - Add deduction template
+router.post('/:id/deductions', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = deductionTemplateSchema.parse(req.body);
+
+    const group = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(id),
+        tenantId: req.user!.tenantId,
+      },
+    });
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    if (group.status !== 'DRAFT') {
+      return res.status(400).json({
+        success: false,
+        error: 'ไม่สามารถแก้ไขรายการหักรับหลังเปิดวงแล้ว',
+      });
+    }
+
+    const template = await prisma.groupDeductionTemplate.create({
+      data: {
+        shareGroupId: parseInt(id),
+        name: data.name,
+        amount: data.amount,
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      data: template,
+      message: 'เพิ่มรายการหักรับเรียบร้อยแล้ว',
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        success: false,
+        error: error.errors[0].message,
+      });
+    }
+
+    console.error('Add deduction template error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// PUT /api/share-groups/:id/deductions/:deductionId - Update deduction template
+router.put('/:id/deductions/:deductionId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { id, deductionId } = req.params;
+    const data = deductionTemplateSchema.parse(req.body);
+
+    const group = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(id),
+        tenantId: req.user!.tenantId,
+      },
+    });
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    if (group.status !== 'DRAFT') {
+      return res.status(400).json({
+        success: false,
+        error: 'ไม่สามารถแก้ไขรายการหักรับหลังเปิดวงแล้ว',
+      });
+    }
+
+    // Verify template belongs to this group
+    const template = await prisma.groupDeductionTemplate.findFirst({
+      where: {
+        id: parseInt(deductionId),
+        shareGroupId: parseInt(id),
+      },
+    });
+
+    if (!template) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบรายการหักรับ',
+      });
+    }
+
+    const updatedTemplate = await prisma.groupDeductionTemplate.update({
+      where: { id: parseInt(deductionId) },
+      data: {
+        name: data.name,
+        amount: data.amount,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: updatedTemplate,
+      message: 'แก้ไขรายการหักรับเรียบร้อยแล้ว',
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        success: false,
+        error: error.errors[0].message,
+      });
+    }
+
+    console.error('Update deduction template error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// DELETE /api/share-groups/:id/deductions/:deductionId - Delete deduction template
+router.delete('/:id/deductions/:deductionId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { id, deductionId } = req.params;
+
+    const group = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(id),
+        tenantId: req.user!.tenantId,
+      },
+    });
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    if (group.status !== 'DRAFT') {
+      return res.status(400).json({
+        success: false,
+        error: 'ไม่สามารถลบรายการหักรับหลังเปิดวงแล้ว',
+      });
+    }
+
+    // Verify template belongs to this group
+    const template = await prisma.groupDeductionTemplate.findFirst({
+      where: {
+        id: parseInt(deductionId),
+        shareGroupId: parseInt(id),
+      },
+    });
+
+    if (!template) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบรายการหักรับ',
+      });
+    }
+
+    await prisma.groupDeductionTemplate.delete({
+      where: { id: parseInt(deductionId) },
+    });
+
+    res.json({
+      success: true,
+      message: 'ลบรายการหักรับเรียบร้อยแล้ว',
+    });
+  } catch (error) {
+    console.error('Delete deduction template error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// ==================== Reports ====================
+
+// GET /api/share-groups/:id/summary - Get group financial summary
+router.get('/:id/summary', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const group = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(id),
+        tenantId: req.user!.tenantId,
+      },
+      include: {
+        host: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+        members: {
+          include: {
+            member: true,
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        },
+        rounds: {
+          include: {
+            winner: {
+              include: {
+                member: true,
+                user: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                  },
+                },
+              },
+            },
+            deductions: true,
+          },
+          orderBy: { roundNumber: 'asc' },
+        },
+        deductionTemplates: true,
+      },
+    });
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    // Calculate summary
+    const poolPerRound = group.principalAmount * group.maxMembers;
+    const totalPool = poolPerRound * group.maxMembers;
+    const completedRounds = group.rounds.filter(r => r.status === 'COMPLETED');
+
+    let totalInterest = 0;
+    let totalDeductions = 0;
+    let totalPayout = 0;
+
+    const roundsSummary = group.rounds.map(round => {
+      const roundInterest = round.winningBid || 0;
+      const roundDeductions = round.deductions.reduce((sum, d) => sum + d.amount, 0);
+      const roundPayout = round.payoutAmount || 0;
+
+      if (round.status === 'COMPLETED') {
+        totalInterest += roundInterest;
+        totalDeductions += roundDeductions;
+        totalPayout += roundPayout;
+      }
+
+      // Get winner name
+      let winnerName = '-';
+      if (round.winner) {
+        if (round.winner.user) {
+          winnerName = `${round.winner.user.firstName} ${round.winner.user.lastName}`;
+        } else if (round.winner.member) {
+          winnerName = round.winner.member.nickname;
+        } else if (round.winner.nickname) {
+          winnerName = round.winner.nickname;
+        }
+      }
+
+      return {
+        roundNumber: round.roundNumber,
+        dueDate: round.dueDate,
+        status: round.status,
+        winnerName,
+        winnerId: round.winnerId,
+        interest: roundInterest,
+        deductions: roundDeductions,
+        payout: roundPayout,
+      };
+    });
+
+    // Get type label
+    const typeLabels: Record<string, string> = {
+      STEP_INTEREST: 'ขั้นบันได',
+      BID_INTEREST: 'บิทดอกตาม',
+      FIXED_INTEREST: 'ดอกตาม',
+      BID_PRINCIPAL: 'บิทลดต้น (หักดอกท้าย)',
+      BID_PRINCIPAL_FIRST: 'บิทลดต้น (หักดอกหน้า)',
+    };
+
+    res.json({
+      success: true,
+      data: {
+        group: {
+          id: group.id,
+          name: group.name,
+          type: group.type,
+          typeLabel: typeLabels[group.type] || group.type,
+          status: group.status,
+          maxMembers: group.maxMembers,
+          principalAmount: group.principalAmount,
+          cycleType: group.cycleType,
+          startDate: group.startDate,
+          host: group.host,
+        },
+        financial: {
+          principalPerRound: group.principalAmount,
+          poolPerRound,
+          totalPool,
+          completedRounds: completedRounds.length,
+          totalRounds: group.maxMembers,
+          totalInterest,
+          totalDeductions,
+          totalPayout,
+        },
+        rounds: roundsSummary,
+        deductionTemplates: group.deductionTemplates,
+      },
+    });
+  } catch (error) {
+    console.error('Get group summary error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// GET /api/share-groups/:id/members/history - Get member participation history
+router.get('/:id/members/history', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const group = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(id),
+        tenantId: req.user!.tenantId,
+      },
+      include: {
+        members: {
+          include: {
+            member: true,
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+            rounds: {
+              include: {
+                deductions: true,
+              },
+            },
+          },
+          orderBy: { joinedAt: 'asc' },
+        },
+      },
+    });
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    // Calculate member history
+    const membersHistory = group.members.map((member, index) => {
+      const wonRound = member.rounds[0]; // Each member can only win once
+      const isHost = member.userId === group.hostId;
+
+      // Get member name
+      let name = member.nickname || '';
+      if (member.user) {
+        name = `${member.user.firstName} ${member.user.lastName}`;
+      } else if (member.member) {
+        name = member.member.nickname;
+      }
+
+      // Calculate interest and payout
+      const interest = wonRound?.winningBid || 0;
+      const payout = wonRound?.payoutAmount || 0;
+
+      return {
+        order: index + 1,
+        id: member.id,
+        name,
+        nickname: member.nickname,
+        isHost,
+        hasWon: !!wonRound,
+        roundNumber: wonRound?.roundNumber || null,
+        dueDate: wonRound?.dueDate || null,
+        interest,
+        payout,
+      };
+    });
+
+    // Calculate statistics (only for members who have won)
+    const wonMembers = membersHistory.filter(m => m.hasWon);
+    const interestValues = wonMembers.map(m => m.interest);
+
+    const stats = {
+      totalMembers: group.members.length,
+      wonCount: wonMembers.length,
+      pendingCount: group.members.length - wonMembers.length,
+      minInterest: interestValues.length > 0 ? Math.min(...interestValues) : 0,
+      maxInterest: interestValues.length > 0 ? Math.max(...interestValues) : 0,
+      avgInterest: interestValues.length > 0
+        ? interestValues.reduce((a, b) => a + b, 0) / interestValues.length
+        : 0,
+      minInterestMember: null as string | null,
+      maxInterestMember: null as string | null,
+    };
+
+    // Find min/max interest members
+    if (wonMembers.length > 0) {
+      const minMember = wonMembers.find(m => m.interest === stats.minInterest);
+      const maxMember = wonMembers.find(m => m.interest === stats.maxInterest);
+      stats.minInterestMember = minMember?.name || null;
+      stats.maxInterestMember = maxMember?.name || null;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        members: membersHistory,
+        stats,
+      },
+    });
+  } catch (error) {
+    console.error('Get member history error:', error);
     res.status(500).json({
       success: false,
       error: 'เกิดข้อผิดพลาด',

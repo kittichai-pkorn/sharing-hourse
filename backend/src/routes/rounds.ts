@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import prisma from '../utils/prisma.js';
 import { authMiddleware, adminMiddleware } from '../middlewares/auth.js';
+import { notifyWinnerRecorded, notifyGroupCompleted } from '../services/notificationService.js';
 
 const router = Router();
 
@@ -28,10 +29,8 @@ router.get('/group/:groupId', authMiddleware, async (req, res) => {
       where: { shareGroupId: parseInt(groupId) },
       include: {
         winner: {
-          select: {
-            id: true,
-            memberCode: true,
-            nickname: true,
+          include: {
+            member: true,
           },
         },
       },
@@ -70,20 +69,18 @@ router.get('/:id', authMiddleware, async (req, res) => {
             },
             members: {
               include: {
+                member: true,
                 rounds: {
                   select: { id: true },
                 },
               },
-              orderBy: { memberCode: 'asc' },
+              orderBy: { joinedAt: 'asc' },
             },
           },
         },
         winner: {
-          select: {
-            id: true,
-            memberCode: true,
-            nickname: true,
-            userId: true,
+          include: {
+            member: true,
           },
         },
         deductions: {
@@ -129,16 +126,16 @@ router.get('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// PUT /api/rounds/:id - Update round (scheduledDate)
+// PUT /api/rounds/:id - Update round (dueDate, assignedMember)
 router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { dueDate } = req.body;
+    const { dueDate, winnerId } = req.body;
 
-    if (!dueDate) {
+    if (!dueDate && winnerId === undefined) {
       return res.status(400).json({
         success: false,
-        error: 'กรุณาระบุวันที่',
+        error: 'กรุณาระบุข้อมูลที่ต้องการแก้ไข',
       });
     }
 
@@ -164,17 +161,39 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
       });
     }
 
+    // First round's winner (host) cannot be changed
+    if (round.roundNumber === 1 && winnerId !== undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'งวดแรกเป็นของท้าวแชร์เสมอ ไม่สามารถเปลี่ยนแปลงได้',
+      });
+    }
+
+    // Build update data
+    const updateData: any = {};
+    if (dueDate) {
+      updateData.dueDate = new Date(dueDate);
+    }
+    if (winnerId !== undefined) {
+      updateData.winnerId = winnerId || null; // null to unassign
+    }
+
     const updatedRound = await prisma.round.update({
       where: { id: parseInt(id) },
-      data: {
-        dueDate: new Date(dueDate),
+      data: updateData,
+      include: {
+        winner: {
+          include: {
+            member: true,
+          },
+        },
       },
     });
 
     res.json({
       success: true,
       data: updatedRound,
-      message: 'แก้ไขวันที่งวดเรียบร้อยแล้ว',
+      message: 'แก้ไขงวดเรียบร้อยแล้ว',
     });
   } catch (error) {
     console.error('Update round error:', error);
@@ -234,15 +253,26 @@ router.post('/:id/winner', authMiddleware, adminMiddleware, async (req, res) => 
     if (!member) {
       return res.status(400).json({
         success: false,
-        error: 'ไม่พบสมาชิก',
+        error: 'ไม่พบลูกแชร์',
       });
     }
 
     if (member.rounds.length > 0) {
       return res.status(400).json({
         success: false,
-        error: 'สมาชิกนี้เปียแล้ว',
+        error: 'ลูกแชร์นี้เปียแล้ว',
       });
+    }
+
+    // First round must be the host
+    if (round.roundNumber === 1) {
+      const hostMember = round.shareGroup.members.find(m => m.userId === round.shareGroup.hostId);
+      if (!hostMember || memberId !== hostMember.id) {
+        return res.status(400).json({
+          success: false,
+          error: 'งวดแรกต้องเป็นท้าวแชร์เท่านั้น',
+        });
+      }
     }
 
     // Calculate payout
@@ -291,10 +321,8 @@ router.post('/:id/winner', authMiddleware, adminMiddleware, async (req, res) => 
         },
         include: {
           winner: {
-            select: {
-              id: true,
-              memberCode: true,
-              nickname: true,
+            include: {
+              member: true,
             },
           },
           deductions: true,
@@ -317,12 +345,44 @@ router.post('/:id/winner', authMiddleware, adminMiddleware, async (req, res) => 
         });
       }
 
-      return updated;
+      return { updated, isGroupCompleted: remainingRounds === 0 };
     });
+
+    // Create notifications (outside transaction)
+    const winnerName = updatedRound.updated.winner?.nickname ||
+      updatedRound.updated.winner?.member?.nickname ||
+      'ผู้ชนะ';
+
+    try {
+      await notifyWinnerRecorded({
+        id: round.id,
+        roundNumber: round.roundNumber,
+        shareGroup: {
+          id: round.shareGroup.id,
+          name: round.shareGroup.name,
+          tenantId: round.shareGroup.tenantId,
+          hostId: round.shareGroup.hostId,
+        },
+        winnerName,
+      });
+
+      // If group completed, send group completed notification
+      if (updatedRound.isGroupCompleted) {
+        await notifyGroupCompleted({
+          id: round.shareGroup.id,
+          name: round.shareGroup.name,
+          tenantId: round.shareGroup.tenantId,
+          hostId: round.shareGroup.hostId,
+        });
+      }
+    } catch (notifyError) {
+      console.error('Notification error:', notifyError);
+      // Don't fail the request if notification fails
+    }
 
     res.json({
       success: true,
-      data: updatedRound,
+      data: updatedRound.updated,
       message: 'บันทึกผู้ชนะเรียบร้อยแล้ว',
     });
   } catch (error) {

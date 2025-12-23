@@ -26,6 +26,7 @@ model Tenant {
   updatedAt DateTime     @updatedAt
 
   users       User[]
+  members     Member[]
   shareGroups ShareGroup[]
 }
 
@@ -119,23 +120,40 @@ enum ShareGroupStatus {
   CANCELLED
 }
 
+// ==================== Member (สมาชิกในระบบ) ====================
+model Member {
+  id         Int      @id @default(autoincrement())
+  tenantId   Int
+  memberCode String   // รหัสสมาชิก: A, B, C, ... (auto-generated)
+  nickname   String   // ชื่อเล่น
+  address    String?
+  phone      String?
+  lineId     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  groupMembers GroupMember[]
+
+  @@unique([tenantId, memberCode])
+}
+
 // ==================== Group Member (สมาชิกในวง) ====================
 model GroupMember {
   id           Int      @id @default(autoincrement())
   shareGroupId Int
-  userId       Int?     // Optional: link to User account
-  memberCode   String   // รหัสลูกแชร์ (unique per group)
-  nickname     String   // ชื่อเล่น
-  address      String?  // ที่อยู่ (optional)
-  phone        String?  // เบอร์โทร (optional)
-  lineId       String?  // ไลน์ไอดี (optional)
+  memberId     Int?     // Link to Member
+  userId       Int?     // Optional: link to User account (for host)
+  nickname     String?  // ชื่อเล่นในวง (optional, ถ้าไม่มีใช้จาก Member)
   joinedAt     DateTime @default(now())
 
-  shareGroup ShareGroup @relation(fields: [shareGroupId], references: [id], onDelete: Cascade)
-  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rounds     Round[]    @relation("RoundWinner")
+  shareGroup       ShareGroup             @relation(fields: [shareGroupId], references: [id], onDelete: Cascade)
+  member           Member?                @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  user             User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rounds           Round[]                @relation("RoundWinner")
+  roundDeductions  MemberRoundDeduction[]
 
-  @@unique([shareGroupId, memberCode])
+  @@unique([shareGroupId, memberId])
 }
 
 // ==================== Round (งวด) ====================
@@ -151,9 +169,10 @@ model Round {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
-  shareGroup ShareGroup   @relation(fields: [shareGroupId], references: [id], onDelete: Cascade)
-  winner     GroupMember? @relation("RoundWinner", fields: [winnerId], references: [id])
-  deductions Deduction[]
+  shareGroup        ShareGroup             @relation(fields: [shareGroupId], references: [id], onDelete: Cascade)
+  winner            GroupMember?           @relation("RoundWinner", fields: [winnerId], references: [id])
+  deductions        Deduction[]
+  memberDeductions  MemberRoundDeduction[]
 
   @@unique([shareGroupId, roundNumber])
 }
@@ -183,4 +202,49 @@ enum DeductionType {
   HOST_DEDUCTION // หักท้ายท้าว
   OPERATION_FEE  // ค่าดำเนินการ
   OTHER          // อื่นๆ
+}
+
+// ==================== Member Round Deduction (รายการหักรับรายคน) ====================
+model MemberRoundDeduction {
+  id            Int      @id @default(autoincrement())
+  roundId       Int
+  groupMemberId Int
+  amount        Float    // ยอดหัก
+  note          String?  // หมายเหตุ
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  round       Round       @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  groupMember GroupMember @relation(fields: [groupMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, groupMemberId])
+  @@index([roundId])
+  @@index([groupMemberId])
+}
+
+// ==================== Notification (การแจ้งเตือน) ====================
+model Notification {
+  id           Int              @id @default(autoincrement())
+  tenantId     Int
+  userId       Int              // ผู้รับแจ้งเตือน
+  type         NotificationType
+  title        String
+  message      String
+  isRead       Boolean          @default(false)
+  referenceId  Int?             // ID อ้างอิง (เช่น roundId, shareGroupId)
+  referenceType String?         // ประเภทอ้างอิง (round, shareGroup)
+  createdAt    DateTime         @default(now())
+  readAt       DateTime?
+
+  @@index([tenantId, userId])
+  @@index([userId, isRead])
+}
+
+enum NotificationType {
+  ROUND_UPCOMING     // งวดใกล้ถึงกำหนด (1 วันก่อน)
+  ROUND_DUE          // ถึงกำหนดงวด
+  WINNER_PENDING     // รอบันทึกผู้ชนะ
+  WINNER_RECORDED    // บันทึกผู้ชนะแล้ว
+  GROUP_OPENED       // เปิดวงแล้ว
+  GROUP_COMPLETED    // วงเสร็จสิ้น
 }

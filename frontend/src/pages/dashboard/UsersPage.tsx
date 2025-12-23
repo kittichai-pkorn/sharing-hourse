@@ -46,7 +46,7 @@ export default function UsersPage() {
 
     try {
       await api.post('/users', formData);
-      setMessage('เพิ่มลูกแชร์เรียบร้อยแล้ว');
+      setMessage('เพิ่มผู้ใช้เรียบร้อยแล้ว');
       setShowAddModal(false);
       resetForm();
       fetchUsers();
@@ -56,11 +56,11 @@ export default function UsersPage() {
   };
 
   const handleDeleteUser = async (userId: number) => {
-    if (!confirm('ต้องการลบลูกแชร์นี้?')) return;
+    if (!confirm('ต้องการลบผู้ใช้นี้?')) return;
 
     try {
       await api.delete(`/users/${userId}`);
-      setMessage('ลบลูกแชร์เรียบร้อยแล้ว');
+      setMessage('ลบผู้ใช้เรียบร้อยแล้ว');
       fetchUsers();
     } catch (err: any) {
       setError(err.response?.data?.error || 'เกิดข้อผิดพลาด');
@@ -93,12 +93,12 @@ export default function UsersPage() {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">สมาชิกในวง (Users)</h1>
+        <h1 className="text-2xl font-bold text-gray-900">ผู้ใช้ระบบ</h1>
         <button
           onClick={() => setShowAddModal(true)}
           className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
         >
-          + เพิ่มลูกแชร์
+          + เพิ่มผู้ใช้
         </button>
       </div>
 
@@ -175,7 +175,7 @@ export default function UsersPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium">เพิ่มลูกแชร์ใหม่</h2>
+              <h2 className="text-lg font-medium">เพิ่มผู้ใช้ใหม่</h2>
               <button onClick={() => { setShowAddModal(false); resetForm(); setError(''); }} className="text-gray-400 hover:text-gray-600">
                 &#x2715;
               </button>
@@ -267,7 +267,7 @@ export default function UsersPage() {
                   type="submit"
                   className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
                 >
-                  เพิ่มลูกแชร์
+                  เพิ่มผู้ใช้
                 </button>
               </div>
             </form>
