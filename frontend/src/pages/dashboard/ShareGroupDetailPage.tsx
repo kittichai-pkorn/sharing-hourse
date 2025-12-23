@@ -2011,51 +2011,60 @@ export default function ShareGroupDetailPage() {
                             // Host doesn't pay in any round (they collect money)
                             const isHostNonWinner = payment.isHost && !payment.isWinner;
 
+                            // Host row - special purple styling
+                            if (isHostNonWinner) {
+                              return (
+                                <div
+                                  key={payment.groupMemberId}
+                                  className="p-4 rounded-xl border border-purple-200 bg-gradient-to-r from-purple-50 to-indigo-50"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                                      <span className="text-lg">👑</span>
+                                    </div>
+                                    <div>
+                                      <div className="font-medium text-purple-800">{payment.nickname} (ท้าว)</div>
+                                      <div className="text-xs text-purple-600 mt-0.5">ไม่ต้องชำระ - เป็นผู้เก็บเงิน</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            // Regular member row
                             return (
                               <div
                                 key={payment.groupMemberId}
                                 className={`p-4 rounded-xl border transition-all ${
-                                  isHostNonWinner
-                                    ? 'bg-gray-100 border-gray-200 opacity-60'
-                                    : localPayments[payment.groupMemberId]
+                                  localPayments[payment.groupMemberId]
                                     ? 'bg-green-50 border-green-200'
                                     : 'bg-gray-50 border-gray-200'
                                 }`}
                               >
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-3">
-                                    {isHostNonWinner ? (
-                                      // Host - disabled checkbox
-                                      <div className="w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-200 flex items-center justify-center cursor-not-allowed">
-                                        <span className="text-gray-400 text-xs">-</span>
-                                      </div>
-                                    ) : (
-                                      <button
-                                        onClick={() => handlePaymentToggle(payment.groupMemberId)}
-                                        className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all ${
-                                          localPayments[payment.groupMemberId]
-                                            ? 'bg-green-500 border-green-500 text-white'
-                                            : 'border-gray-300 hover:border-gray-400'
-                                        }`}
-                                      >
-                                        {localPayments[payment.groupMemberId] && (
-                                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                          </svg>
-                                        )}
-                                      </button>
-                                    )}
+                                    <button
+                                      onClick={() => handlePaymentToggle(payment.groupMemberId)}
+                                      className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all ${
+                                        localPayments[payment.groupMemberId]
+                                          ? 'bg-green-500 border-green-500 text-white'
+                                          : 'border-gray-300 hover:border-gray-400'
+                                      }`}
+                                    >
+                                      {localPayments[payment.groupMemberId] && (
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                      )}
+                                    </button>
                                     <div>
                                       <div className="flex items-center gap-2">
-                                        {payment.isHost && <span className="text-xs">👑</span>}
-                                        <span className={`font-medium ${isHostNonWinner ? 'text-gray-500' : ''}`}>{payment.nickname}</span>
+                                        <span className="font-medium">{payment.nickname}</span>
                                         {payment.memberCode && (
                                           <span className="text-xs text-gray-400">({payment.memberCode})</span>
                                         )}
                                       </div>
-                                      {isHostNonWinner ? (
-                                        <div className="text-xs text-gray-400 mt-0.5">ท้าว - ไม่ต้องชำระ</div>
-                                      ) : payment.paidAt ? (
+                                      {payment.paidAt ? (
                                         <div className="text-xs text-green-600 mt-0.5">
                                           ชำระเมื่อ {new Date(payment.paidAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
                                         </div>
@@ -2065,9 +2074,7 @@ export default function ShareGroupDetailPage() {
                                     </div>
                                   </div>
                                   <div className="text-right">
-                                    {!isHostNonWinner && (
-                                      <div className="font-medium">{payment.amount.toLocaleString()} บาท</div>
-                                    )}
+                                    <div className="font-medium">{payment.amount.toLocaleString()} บาท</div>
                                   </div>
                                 </div>
                               </div>
