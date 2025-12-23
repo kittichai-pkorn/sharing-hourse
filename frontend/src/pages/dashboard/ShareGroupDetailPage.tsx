@@ -153,21 +153,47 @@ export default function ShareGroupDetailPage() {
     try {
       const response = await api.get(`/deductions/round/${round.id}`);
       const deductions = response.data.data || [];
-      setRoundDeductionItems(deductions.map((d: any) => ({
-        id: d.id,
-        name: d.note || d.type,
-        amount: d.amount,
-      })));
+      if (deductions.length > 0) {
+        // Use saved deductions
+        setRoundDeductionItems(deductions.map((d: any) => ({
+          id: d.id,
+          name: d.note || d.type,
+          amount: d.amount,
+        })));
+      } else {
+        // Auto-fill from template and managementFee
+        const autoItems = buildAutoDeductionItems();
+        setRoundDeductionItems(autoItems);
+      }
       setShowRoundDeductionModal(true);
     } catch (err) {
-      // If no deductions yet, start with template
-      const templateItems = group?.deductionTemplates?.map((t) => ({
-        name: t.name,
-        amount: t.amount,
-      })) || [];
-      setRoundDeductionItems(templateItems);
+      // If error, auto-fill from template and managementFee
+      const autoItems = buildAutoDeductionItems();
+      setRoundDeductionItems(autoItems);
       setShowRoundDeductionModal(true);
     }
+  };
+
+  // Build auto-fill deduction items based on group settings
+  const buildAutoDeductionItems = () => {
+    const items: { name: string; amount: number }[] = [];
+
+    // Add management fee if exists
+    if (group?.managementFee && group.managementFee > 0) {
+      items.push({ name: 'ค่าดูแลวง', amount: group.managementFee });
+    }
+
+    // Add template items
+    if (group?.deductionTemplates) {
+      group.deductionTemplates.forEach((t) => {
+        // Avoid duplicate if managementFee already added
+        if (t.name !== 'ค่าดูแลวง') {
+          items.push({ name: t.name, amount: t.amount });
+        }
+      });
+    }
+
+    return items;
   };
 
   const handleAddDeductionItem = () => {
