@@ -194,55 +194,54 @@ export default function ShareGroupDetailPage() {
   };
 
   // Build auto-fill deduction items based on group settings
+  // Always show ค่าดูแลวง and ดอกเบี้ย (even if 0)
   const buildAutoDeductionItems = (round?: Round) => {
     const items: { name: string; amount: number }[] = [];
     const currentRound = round || selectedRoundForDeduction;
 
-    // Add management fee if exists
-    if (group?.managementFee && group.managementFee > 0) {
-      items.push({ name: 'ค่าดูแลวง', amount: group.managementFee });
-    }
+    // 1. ค่าดูแลวง - แสดงเสมอ (ถ้าไม่มี = 0)
+    items.push({
+      name: 'ค่าดูแลวง',
+      amount: group?.managementFee || 0
+    });
 
-    // Add interest based on group type (skip round 1 for host)
-    if (currentRound && currentRound.roundNumber > 1) {
-      let interestAmount = 0;
-      let interestNote = 'ดอกเบี้ย';
+    // 2. ดอกเบี้ย - แสดงเสมอ (คำนวณตามประเภทวง)
+    let interestAmount = 0;
+    let interestNote = 'ดอกเบี้ย';
 
-      switch (group?.type) {
-        case 'STEP_INTEREST':
-          // ดอกขั้นบันได = interestRate × งวดที่
-          if (group.interestRate) {
-            interestAmount = group.interestRate * currentRound.roundNumber;
-            interestNote = `ดอกเบี้ย (${group.interestRate}×${currentRound.roundNumber})`;
-          }
-          break;
-        case 'FIXED_INTEREST':
-          // ดอกคงที่ = interestRate
-          if (group.interestRate) {
-            interestAmount = group.interestRate;
+    if (currentRound) {
+      // งวดแรก = 0 (host ได้ก่อน ไม่เสียดอก)
+      if (currentRound.roundNumber > 1) {
+        switch (group?.type) {
+          case 'STEP_INTEREST':
+            // ดอกขั้นบันได = interestRate × งวดที่
+            interestAmount = (group.interestRate || 0) * currentRound.roundNumber;
+            if (group.interestRate) {
+              interestNote = `ดอกเบี้ย (${group.interestRate}×${currentRound.roundNumber})`;
+            }
+            break;
+          case 'FIXED_INTEREST':
+            // ดอกคงที่ = interestRate
+            interestAmount = group.interestRate || 0;
             interestNote = 'ดอกเบี้ยคงที่';
-          }
-          break;
-        case 'BID_INTEREST':
-        case 'BID_PRINCIPAL':
-        case 'BID_PRINCIPAL_FIRST':
-          // ดอกประมูล = winningBid
-          if (currentRound.winningBid && currentRound.winningBid > 0) {
-            interestAmount = currentRound.winningBid;
+            break;
+          case 'BID_INTEREST':
+          case 'BID_PRINCIPAL':
+          case 'BID_PRINCIPAL_FIRST':
+            // ดอกประมูล = winningBid
+            interestAmount = currentRound.winningBid || 0;
             interestNote = 'ดอกประมูล';
-          }
-          break;
-      }
-
-      if (interestAmount > 0) {
-        items.push({ name: interestNote, amount: interestAmount });
+            break;
+        }
       }
     }
 
-    // Add template items
+    items.push({ name: interestNote, amount: interestAmount });
+
+    // 3. รายการจาก template
     if (group?.deductionTemplates) {
       group.deductionTemplates.forEach((t) => {
-        // Avoid duplicate if managementFee already added
+        // Avoid duplicate with ค่าดูแลวง
         if (t.name !== 'ค่าดูแลวง') {
           items.push({ name: t.name, amount: t.amount });
         }
