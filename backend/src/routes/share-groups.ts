@@ -1103,4 +1103,157 @@ router.get('/:id/members/history', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/share-groups/:id/payment-schedule - Get payment schedule for all members
+router.get('/:id/payment-schedule', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const group = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(id),
+        tenantId: req.user!.tenantId,
+      },
+      include: {
+        members: {
+          include: {
+            member: true,
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+            rounds: {
+              select: {
+                id: true,
+                roundNumber: true,
+              },
+            },
+          },
+          orderBy: { joinedAt: 'asc' },
+        },
+        rounds: {
+          orderBy: { roundNumber: 'asc' },
+        },
+      },
+    });
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    // Build rounds info
+    const rounds = group.rounds.map(round => {
+      // Find winner info
+      const winner = group.members.find(m => m.rounds.some(r => r.roundNumber === round.roundNumber));
+      let winnerName: string | null = null;
+
+      if (winner) {
+        if (winner.user) {
+          winnerName = `${winner.user.firstName} ${winner.user.lastName}`;
+        } else if (winner.member) {
+          winnerName = winner.member.nickname;
+        } else {
+          winnerName = winner.nickname;
+        }
+      }
+
+      return {
+        roundNumber: round.roundNumber,
+        dueDate: round.dueDate,
+        winnerId: round.winnerId,
+        winnerName,
+        status: round.status,
+      };
+    });
+
+    // Build payment schedule for each member
+    const members = group.members.map((member, index) => {
+      // Get member name
+      let name = member.nickname || '';
+      let memberCode: string | null = null;
+
+      if (member.user) {
+        name = `${member.user.firstName} ${member.user.lastName}`;
+      } else if (member.member) {
+        name = member.member.nickname;
+        memberCode = member.member.memberCode;
+      }
+
+      const isHost = member.userId === group.hostId;
+      const wonRound = member.rounds[0]; // Each member can only win once
+
+      // Calculate payments for each round
+      const payments = group.rounds.map(round => {
+        const isWonRound = wonRound?.roundNumber === round.roundNumber;
+        const isCompleted = round.status === 'COMPLETED';
+
+        let status: 'PENDING' | 'PAID' | 'WON';
+        let amount: number;
+
+        if (isWonRound) {
+          status = 'WON';
+          amount = 0; // ไม่ต้องชำระ เพราะได้รับเงินแทน
+        } else if (isCompleted) {
+          status = 'PAID';
+          amount = group.principalAmount;
+        } else {
+          status = 'PENDING';
+          amount = group.principalAmount;
+        }
+
+        return {
+          roundNumber: round.roundNumber,
+          dueDate: round.dueDate,
+          amount,
+          status,
+        };
+      });
+
+      // Calculate totals
+      const totalPayment = payments
+        .filter(p => p.status !== 'WON')
+        .reduce((sum, p) => sum + p.amount, 0);
+      const totalPaid = payments
+        .filter(p => p.status === 'PAID')
+        .reduce((sum, p) => sum + p.amount, 0);
+
+      return {
+        id: member.id,
+        order: index + 1,
+        memberCode,
+        nickname: member.nickname,
+        name,
+        isHost,
+        wonRound: wonRound?.roundNumber || null,
+        payments,
+        totalPayment,
+        totalPaid,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        groupId: group.id,
+        groupName: group.name,
+        principalAmount: group.principalAmount,
+        totalRounds: group.maxMembers,
+        rounds,
+        members,
+      },
+    });
+  } catch (error) {
+    console.error('Get payment schedule error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
 export default router;

@@ -152,6 +152,7 @@ model GroupMember {
   user             User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   rounds           Round[]                @relation("RoundWinner")
   roundDeductions  MemberRoundDeduction[]
+  roundPayments    RoundPayment[]
 
   @@unique([shareGroupId, memberId])
 }
@@ -173,6 +174,7 @@ model Round {
   winner            GroupMember?           @relation("RoundWinner", fields: [winnerId], references: [id])
   deductions        Deduction[]
   memberDeductions  MemberRoundDeduction[]
+  payments          RoundPayment[]
 
   @@unique([shareGroupId, roundNumber])
 }
@@ -213,6 +215,25 @@ model MemberRoundDeduction {
   note          String?  // หมายเหตุ
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  round       Round       @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  groupMember GroupMember @relation(fields: [groupMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, groupMemberId])
+  @@index([roundId])
+  @@index([groupMemberId])
+}
+
+// ==================== Round Payment (การชำระเงินของลูกแชร์) ====================
+model RoundPayment {
+  id            Int       @id @default(autoincrement())
+  roundId       Int
+  groupMemberId Int
+  amount        Float     // จำนวนเงินที่ชำระ (= principalAmount)
+  paidAt        DateTime? // วันที่ชำระ (null = ยังไม่ชำระ)
+  note          String?   // หมายเหตุ
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   round       Round       @relation(fields: [roundId], references: [id], onDelete: Cascade)
   groupMember GroupMember @relation(fields: [groupMemberId], references: [id], onDelete: Cascade)

@@ -126,13 +126,13 @@ router.get('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// PUT /api/rounds/:id - Update round (dueDate, assignedMember)
+// PUT /api/rounds/:id - Update round (dueDate, assignedMember, interest)
 router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { dueDate, winnerId } = req.body;
+    const { dueDate, winnerId, interest } = req.body;
 
-    if (!dueDate && winnerId === undefined) {
+    if (!dueDate && winnerId === undefined && interest === undefined) {
       return res.status(400).json({
         success: false,
         error: 'กรุณาระบุข้อมูลที่ต้องการแก้ไข',
@@ -153,8 +153,9 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
       });
     }
 
-    // Only allow editing if round is not completed
-    if (round.status === 'COMPLETED') {
+    // Only allow editing dueDate/winnerId if round is not completed
+    // But interest can be edited anytime
+    if (round.status === 'COMPLETED' && (dueDate || winnerId !== undefined)) {
       return res.status(400).json({
         success: false,
         error: 'ไม่สามารถแก้ไขงวดที่เสร็จสิ้นแล้ว',
@@ -169,6 +170,14 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
       });
     }
 
+    // Validate interest
+    if (interest !== undefined && interest < 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'ดอกเบี้ยต้องไม่ติดลบ',
+      });
+    }
+
     // Build update data
     const updateData: any = {};
     if (dueDate) {
@@ -176,6 +185,9 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
     }
     if (winnerId !== undefined) {
       updateData.winnerId = winnerId || null; // null to unassign
+    }
+    if (interest !== undefined) {
+      updateData.winningBid = interest;
     }
 
     const updatedRound = await prisma.round.update({
@@ -464,6 +476,257 @@ router.post('/generate/:groupId', authMiddleware, adminMiddleware, async (req, r
     });
   } catch (error) {
     console.error('Generate rounds error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// ==================== Round Payment APIs ====================
+
+// GET /api/rounds/:roundId/payments - Get all payments for a round
+router.get('/:roundId/payments', authMiddleware, async (req, res) => {
+  try {
+    const { roundId } = req.params;
+
+    const round = await prisma.round.findFirst({
+      where: { id: parseInt(roundId) },
+      include: {
+        shareGroup: {
+          include: {
+            members: {
+              include: {
+                member: true,
+                user: {
+                  select: { id: true, firstName: true, lastName: true },
+                },
+              },
+              orderBy: { joinedAt: 'asc' },
+            },
+          },
+        },
+        payments: true,
+      },
+    });
+
+    if (!round || round.shareGroup.tenantId !== req.user!.tenantId) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบงวด',
+      });
+    }
+
+    const principalAmount = round.shareGroup.principalAmount;
+    const winnerId = round.winnerId;
+
+    // Build payments list
+    const payments = round.shareGroup.members.map((gm) => {
+      const isWinner = gm.id === winnerId;
+      const existingPayment = round.payments.find((p) => p.groupMemberId === gm.id);
+      const isHost = gm.userId === round.shareGroup.hostId;
+
+      // Get nickname from groupMember, member, or user
+      const nickname =
+        gm.nickname || gm.member?.nickname || (gm.user ? `${gm.user.firstName} ${gm.user.lastName}` : 'ไม่ระบุชื่อ');
+      const memberCode = gm.member?.memberCode || null;
+
+      if (isWinner) {
+        return {
+          id: existingPayment?.id || null,
+          groupMemberId: gm.id,
+          memberCode,
+          nickname,
+          isHost,
+          isWinner: true,
+          amount: 0,
+          isPaid: null, // null = เปียงวดนี้
+          paidAt: null,
+          note: 'เปียงวดนี้',
+        };
+      }
+
+      return {
+        id: existingPayment?.id || null,
+        groupMemberId: gm.id,
+        memberCode,
+        nickname,
+        isHost,
+        isWinner: false,
+        amount: principalAmount,
+        isPaid: existingPayment?.paidAt ? true : false,
+        paidAt: existingPayment?.paidAt || null,
+        note: existingPayment?.note || null,
+      };
+    });
+
+    // Calculate stats (exclude winner)
+    const nonWinnerPayments = payments.filter((p) => !p.isWinner);
+    const paidCount = nonWinnerPayments.filter((p) => p.isPaid).length;
+    const totalMembers = nonWinnerPayments.length;
+    const paidAmount = paidCount * principalAmount;
+    const totalAmount = totalMembers * principalAmount;
+
+    res.json({
+      success: true,
+      data: {
+        roundId: round.id,
+        roundNumber: round.roundNumber,
+        dueDate: round.dueDate,
+        principalAmount,
+        totalMembers,
+        paidCount,
+        paidAmount,
+        totalAmount,
+        winnerId,
+        payments,
+      },
+    });
+  } catch (error) {
+    console.error('Get round payments error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// POST /api/rounds/:roundId/payments - Bulk save/update payments
+router.post('/:roundId/payments', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { roundId } = req.params;
+    const { payments } = req.body;
+
+    if (!payments || !Array.isArray(payments)) {
+      return res.status(400).json({
+        success: false,
+        error: 'กรุณาระบุรายการชำระเงิน',
+      });
+    }
+
+    const round = await prisma.round.findFirst({
+      where: { id: parseInt(roundId) },
+      include: {
+        shareGroup: true,
+      },
+    });
+
+    if (!round || round.shareGroup.tenantId !== req.user!.tenantId) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบงวด',
+      });
+    }
+
+    const principalAmount = round.shareGroup.principalAmount;
+
+    // Process payments in transaction
+    await prisma.$transaction(async (tx) => {
+      for (const payment of payments) {
+        const { groupMemberId, isPaid, note } = payment;
+
+        // Skip winner
+        if (groupMemberId === round.winnerId) continue;
+
+        // Upsert payment record
+        await tx.roundPayment.upsert({
+          where: {
+            roundId_groupMemberId: {
+              roundId: round.id,
+              groupMemberId,
+            },
+          },
+          create: {
+            roundId: round.id,
+            groupMemberId,
+            amount: principalAmount,
+            paidAt: isPaid ? new Date() : null,
+            note: note || null,
+          },
+          update: {
+            paidAt: isPaid ? new Date() : null,
+            note: note || null,
+          },
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'บันทึกการชำระเงินเรียบร้อยแล้ว',
+    });
+  } catch (error) {
+    console.error('Save round payments error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// PUT /api/rounds/:roundId/payments/:groupMemberId - Update single payment
+router.put('/:roundId/payments/:groupMemberId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { roundId, groupMemberId } = req.params;
+    const { isPaid, note } = req.body;
+
+    const round = await prisma.round.findFirst({
+      where: { id: parseInt(roundId) },
+      include: {
+        shareGroup: true,
+      },
+    });
+
+    if (!round || round.shareGroup.tenantId !== req.user!.tenantId) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบงวด',
+      });
+    }
+
+    // Cannot update winner's payment
+    if (parseInt(groupMemberId) === round.winnerId) {
+      return res.status(400).json({
+        success: false,
+        error: 'ผู้ชนะไม่ต้องชำระเงิน',
+      });
+    }
+
+    const principalAmount = round.shareGroup.principalAmount;
+
+    // Upsert payment
+    const payment = await prisma.roundPayment.upsert({
+      where: {
+        roundId_groupMemberId: {
+          roundId: round.id,
+          groupMemberId: parseInt(groupMemberId),
+        },
+      },
+      create: {
+        roundId: round.id,
+        groupMemberId: parseInt(groupMemberId),
+        amount: principalAmount,
+        paidAt: isPaid ? new Date() : null,
+        note: note || null,
+      },
+      update: {
+        paidAt: isPaid ? new Date() : null,
+        note: note || null,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        id: payment.id,
+        groupMemberId: payment.groupMemberId,
+        isPaid: payment.paidAt ? true : false,
+        paidAt: payment.paidAt,
+        note: payment.note,
+      },
+    });
+  } catch (error) {
+    console.error('Update payment error:', error);
     res.status(500).json({
       success: false,
       error: 'เกิดข้อผิดพลาด',

@@ -60,25 +60,64 @@ interface ShareGroup {
   };
 }
 
-interface SummaryRound {
-  roundNumber: number;
-  dueDate: string;
-  status: string;
-  winnerName?: string;
-  interest: number;
-  deductions: number;
-  payout: number;
-}
 
-interface MemberHistory {
+interface PaymentScheduleMember {
   id: number;
   order: number;
+  memberCode: string | null;
+  nickname: string;
   name: string;
   isHost: boolean;
-  hasWon: boolean;
-  roundNumber?: number;
-  interest: number;
-  payout: number;
+  wonRound: number | null;
+  payments: {
+    roundNumber: number;
+    dueDate: string;
+    amount: number;
+    status: 'PENDING' | 'PAID' | 'WON';
+  }[];
+  totalPayment: number;
+  totalPaid: number;
+}
+
+interface RoundPayment {
+  id: number | null;
+  groupMemberId: number;
+  memberCode: string | null;
+  nickname: string;
+  isHost: boolean;
+  isWinner: boolean;
+  amount: number;
+  isPaid: boolean | null;
+  paidAt: string | null;
+  note: string | null;
+}
+
+interface RoundPaymentsData {
+  roundId: number;
+  roundNumber: number;
+  dueDate: string;
+  principalAmount: number;
+  totalMembers: number;
+  paidCount: number;
+  paidAmount: number;
+  totalAmount: number;
+  winnerId: number | null;
+  payments: RoundPayment[];
+}
+
+interface PaymentSchedule {
+  groupId: number;
+  groupName: string;
+  principalAmount: number;
+  totalRounds: number;
+  rounds: {
+    roundNumber: number;
+    dueDate: string;
+    winnerId: number | null;
+    winnerName: string | null;
+    status: string;
+  }[];
+  members: PaymentScheduleMember[];
 }
 
 const typeLabels: Record<string, string> = {
@@ -119,7 +158,7 @@ export default function ShareGroupDetailPage() {
   });
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [activeTab, setActiveTab] = useState<'members' | 'rounds' | 'summary'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'rounds'>('members');
 
   // Deduction states
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -131,38 +170,26 @@ export default function ShareGroupDetailPage() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
 
-  // Summary/Report states
-  const [summaryData, setSummaryData] = useState<{
-    financial: {
-      principalPerRound: number;
-      poolPerRound: number;
-      totalPool: number;
-      completedRounds: number;
-      totalRounds: number;
-      totalInterest: number;
-      totalDeductions: number;
-      totalPayout: number;
-    };
-    rounds: SummaryRound[];
-  } | null>(null);
-  const [memberHistoryData, setMemberHistoryData] = useState<{
-    stats: {
-      wonCount: number;
-      totalMembers: number;
-      minInterest: number;
-      maxInterest: number;
-      avgInterest: number;
-      minInterestMember: string;
-      maxInterestMember: string;
-    };
-    members: MemberHistory[];
-  } | null>(null);
-  const [isSummaryLoading, setIsSummaryLoading] = useState(false);
 
   // Round Deductions Modal states
   const [showRoundDeductionModal, setShowRoundDeductionModal] = useState(false);
   const [selectedRoundForDeduction, setSelectedRoundForDeduction] = useState<Round | null>(null);
   const [roundDeductionItems, setRoundDeductionItems] = useState<{ id?: number; name: string; amount: number }[]>([]);
+  const [roundModalTab, setRoundModalTab] = useState<'deductions' | 'payments'>('deductions');
+  const [roundPaymentsData, setRoundPaymentsData] = useState<RoundPaymentsData | null>(null);
+  const [roundPaymentsLoading, setRoundPaymentsLoading] = useState(false);
+  const [localPayments, setLocalPayments] = useState<{ [key: number]: boolean }>({});
+
+  // Payment Schedule Modal states
+  const [showPaymentScheduleModal, setShowPaymentScheduleModal] = useState(false);
+  const [paymentScheduleData, setPaymentScheduleData] = useState<PaymentSchedule | null>(null);
+  const [isPaymentScheduleLoading, setIsPaymentScheduleLoading] = useState(false);
+  const [expandedMembers, setExpandedMembers] = useState<Set<number>>(new Set());
+
+  // Inline edit interest states
+  const [editingInterestRoundId, setEditingInterestRoundId] = useState<number | null>(null);
+  const [editInterestValue, setEditInterestValue] = useState<string>('');
+  const [savingInterest, setSavingInterest] = useState(false);
 
   // Auto-dismiss messages
   useEffect(() => {
@@ -199,25 +226,216 @@ export default function ShareGroupDetailPage() {
     }
   };
 
-  const fetchSummary = async () => {
-    setIsSummaryLoading(true);
+
+  const fetchPaymentSchedule = async () => {
+    setIsPaymentScheduleLoading(true);
     try {
-      const [summaryRes, historyRes] = await Promise.all([
-        api.get(`/share-groups/${id}/summary`),
-        api.get(`/share-groups/${id}/members/history`),
-      ]);
-      setSummaryData(summaryRes.data.data);
-      setMemberHistoryData(historyRes.data.data);
+      const response = await api.get(`/share-groups/${id}/payment-schedule`);
+      setPaymentScheduleData(response.data.data);
+      // Expand all members by default
+      const allMemberIds = new Set<number>(response.data.data.members.map((m: PaymentScheduleMember) => m.id));
+      setExpandedMembers(allMemberIds);
     } catch (err) {
-      console.error('Failed to fetch summary:', err);
+      console.error('Failed to fetch payment schedule:', err);
     } finally {
-      setIsSummaryLoading(false);
+      setIsPaymentScheduleLoading(false);
     }
+  };
+
+  const openPaymentScheduleModal = () => {
+    setShowPaymentScheduleModal(true);
+    if (!paymentScheduleData) {
+      fetchPaymentSchedule();
+    }
+  };
+
+  const fetchRoundPayments = async (roundId: number) => {
+    setRoundPaymentsLoading(true);
+    try {
+      const response = await api.get(`/rounds/${roundId}/payments`);
+      const data = response.data.data;
+      setRoundPaymentsData(data);
+      // Initialize local payments state
+      const payments: { [key: number]: boolean } = {};
+      data.payments.forEach((p: RoundPayment) => {
+        if (!p.isWinner) {
+          payments[p.groupMemberId] = p.isPaid || false;
+        }
+      });
+      setLocalPayments(payments);
+    } catch (err) {
+      console.error('Failed to fetch round payments:', err);
+    } finally {
+      setRoundPaymentsLoading(false);
+    }
+  };
+
+  const handlePaymentToggle = (groupMemberId: number) => {
+    setLocalPayments((prev) => ({
+      ...prev,
+      [groupMemberId]: !prev[groupMemberId],
+    }));
+  };
+
+  const handleSaveRoundPayments = async () => {
+    if (!selectedRoundForDeduction) return;
+
+    try {
+      const payments = Object.entries(localPayments).map(([groupMemberId, isPaid]) => ({
+        groupMemberId: parseInt(groupMemberId),
+        isPaid,
+      }));
+
+      await api.post(`/rounds/${selectedRoundForDeduction.id}/payments`, { payments });
+      setMessage('บันทึกการชำระเงินเรียบร้อยแล้ว');
+      // Refresh payment data
+      fetchRoundPayments(selectedRoundForDeduction.id);
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'เกิดข้อผิดพลาด');
+    }
+  };
+
+  const toggleMemberExpand = (memberId: number) => {
+    setExpandedMembers(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(memberId)) {
+        newSet.delete(memberId);
+      } else {
+        newSet.add(memberId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleAllMembers = () => {
+    if (paymentScheduleData) {
+      if (expandedMembers.size === paymentScheduleData.members.length) {
+        setExpandedMembers(new Set());
+      } else {
+        setExpandedMembers(new Set(paymentScheduleData.members.map(m => m.id)));
+      }
+    }
+  };
+
+  // Calculate default interest for a round based on group type
+  const getDefaultInterest = (round: Round): number => {
+    if (!group) return 0;
+    if (round.roundNumber === 1) return 0; // งวดแรกไม่มีดอก
+
+    switch (group.type) {
+      case 'STEP_INTEREST':
+        return (group.interestRate || 0) * round.roundNumber;
+      case 'FIXED_INTEREST':
+        return group.interestRate || 0;
+      case 'BID_INTEREST':
+      case 'BID_PRINCIPAL':
+      case 'BID_PRINCIPAL_FIRST':
+        return round.winningBid || 0;
+      default:
+        return 0;
+    }
+  };
+
+  // Get display interest (winningBid if set, otherwise calculated)
+  const getDisplayInterest = (round: Round): number | null => {
+    if (round.roundNumber === 1) return null;
+    if (round.winningBid !== null) return round.winningBid;
+    return getDefaultInterest(round);
+  };
+
+  // Check if round can edit interest (not first round, not BID type unless has winner)
+  const canEditInterest = (round: Round): boolean => {
+    if (round.roundNumber === 1) return false;
+    if (!group) return false;
+    // For BID types, can only edit after winner is set
+    if (group.type.startsWith('BID_') && !round.winnerId) return false;
+    return true;
+  };
+
+  // Start editing interest
+  const startEditInterest = (round: Round) => {
+    const currentValue = round.winningBid ?? getDefaultInterest(round);
+    setEditingInterestRoundId(round.id);
+    setEditInterestValue(currentValue.toString());
+  };
+
+  // Cancel editing
+  const cancelEditInterest = () => {
+    setEditingInterestRoundId(null);
+    setEditInterestValue('');
+  };
+
+  // Save interest
+  const saveInterest = async (roundId: number) => {
+    const value = parseFloat(editInterestValue);
+    if (isNaN(value) || value < 0) {
+      setError('กรุณากรอกดอกเบี้ยที่ถูกต้อง');
+      return;
+    }
+
+    setSavingInterest(true);
+    try {
+      await api.put(`/rounds/${roundId}`, { interest: value });
+      // Update local rounds state
+      setRounds(prev => prev.map(r =>
+        r.id === roundId ? { ...r, winningBid: value } : r
+      ));
+      setMessage('บันทึกดอกเบี้ยเรียบร้อยแล้ว');
+      cancelEditInterest();
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'เกิดข้อผิดพลาดในการบันทึก');
+    } finally {
+      setSavingInterest(false);
+    }
+  };
+
+  // Handle keyboard events for interest input
+  const handleInterestKeyDown = (e: React.KeyboardEvent, roundId: number) => {
+    if (e.key === 'Enter') {
+      saveInterest(roundId);
+    } else if (e.key === 'Escape') {
+      cancelEditInterest();
+    }
+  };
+
+  const generateShareText = () => {
+    if (!paymentScheduleData) return '';
+
+    let text = `📅 ตารางวันที่ต้องชำระ\n`;
+    text += `วง: ${paymentScheduleData.groupName}\n`;
+    text += `เงินต้น: ${paymentScheduleData.principalAmount.toLocaleString()} บาท/งวด\n\n`;
+
+    paymentScheduleData.rounds.forEach(round => {
+      const dateStr = new Date(round.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+      const winner = round.winnerName || 'รอ';
+      text += `งวด ${round.roundNumber}: ${dateStr} - ${winner}\n`;
+    });
+
+    text += `\n💡 ทุกคนต้องชำระ ${paymentScheduleData.principalAmount.toLocaleString()} บาท ทุกงวด\n`;
+    text += `   ยกเว้นงวดที่ตัวเองเปีย`;
+
+    return text;
+  };
+
+  const copyToClipboard = () => {
+    const text = generateShareText();
+    navigator.clipboard.writeText(text).then(() => {
+      setMessage('คัดลอกข้อความเรียบร้อยแล้ว');
+    });
+  };
+
+  const shareToLine = () => {
+    const text = encodeURIComponent(generateShareText());
+    window.open(`https://line.me/R/msg/text/?${text}`, '_blank');
   };
 
   const openRoundDeductionModal = async (round: Round) => {
     setSelectedRoundForDeduction(round);
     setError('');
+    setRoundModalTab('deductions');
+    setRoundPaymentsData(null);
     try {
       const response = await api.get(`/deductions/round/${round.id}`);
       const savedDeductions = response.data.data || [];
@@ -252,6 +470,13 @@ export default function ShareGroupDetailPage() {
       const autoItems = buildAutoDeductionItems(round);
       setRoundDeductionItems(autoItems);
       setShowRoundDeductionModal(true);
+    }
+  };
+
+  const handleRoundModalTabChange = (tab: 'deductions' | 'payments') => {
+    setRoundModalTab(tab);
+    if (tab === 'payments' && selectedRoundForDeduction && !roundPaymentsData) {
+      fetchRoundPayments(selectedRoundForDeduction.id);
     }
   };
 
@@ -354,11 +579,6 @@ export default function ShareGroupDetailPage() {
     fetchRounds();
   }, [id]);
 
-  useEffect(() => {
-    if (activeTab === 'summary' && !summaryData) {
-      fetchSummary();
-    }
-  }, [activeTab]);
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -754,37 +974,49 @@ export default function ShareGroupDetailPage() {
       {/* Tabs */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="border-b border-gray-100">
-          <nav className="flex">
-            {[
-              { key: 'members', label: 'ลูกแชร์', icon: '👥', count: `${group.members.length}/${group.maxMembers}` },
-              { key: 'rounds', label: 'งวด', icon: '📅', count: `${completedRounds}/${rounds.length}` },
-              { key: 'summary', label: 'รายงาน', icon: '📊' },
-            ].map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key as 'members' | 'rounds' | 'summary')}
-                className={`flex-1 px-6 py-4 text-sm font-medium transition-all relative ${
-                  activeTab === tab.key
-                    ? 'text-blue-600'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <span className="flex items-center justify-center gap-2">
-                  <span>{tab.icon}</span>
-                  <span>{tab.label}</span>
-                  {tab.count && (
-                    <span className={`px-2 py-0.5 rounded-full text-xs ${
-                      activeTab === tab.key ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {tab.count}
-                    </span>
+          <nav className="flex items-center">
+            <div className="flex flex-1">
+              {[
+                { key: 'members', label: 'ลูกแชร์', icon: '👥', count: `${group.members.length}/${group.maxMembers}` },
+                { key: 'rounds', label: 'งวด', icon: '📅', count: `${completedRounds}/${rounds.length}` },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key as 'members' | 'rounds')}
+                  className={`flex-1 px-6 py-4 text-sm font-medium transition-all relative ${
+                    activeTab === tab.key
+                      ? 'text-blue-600'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <span className="flex items-center justify-center gap-2">
+                    <span>{tab.icon}</span>
+                    <span>{tab.label}</span>
+                    {tab.count && (
+                      <span className={`px-2 py-0.5 rounded-full text-xs ${
+                        activeTab === tab.key ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {tab.count}
+                      </span>
+                    )}
+                  </span>
+                  {activeTab === tab.key && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
                   )}
-                </span>
-                {activeTab === tab.key && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
-                )}
-              </button>
-            ))}
+                </button>
+              ))}
+            </div>
+            {(group.status === 'OPEN' || group.status === 'IN_PROGRESS' || group.status === 'COMPLETED') && (
+              <div className="px-4">
+                <button
+                  onClick={openPaymentScheduleModal}
+                  className="px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-1.5"
+                >
+                  <span>📋</span>
+                  <span className="hidden sm:inline">ตารางชำระ</span>
+                </button>
+              </div>
+            )}
           </nav>
         </div>
 
@@ -994,7 +1226,48 @@ export default function ShareGroupDetailPage() {
                           </td>
                           <td className="px-4 py-3 text-sm">{round.winner?.nickname || '-'}</td>
                           <td className="px-4 py-3 text-sm text-right">
-                            {round.winningBid !== null && round.winningBid > 0 ? round.winningBid.toLocaleString() : '-'}
+                            {editingInterestRoundId === round.id ? (
+                              // Edit mode
+                              <div className="flex items-center justify-end gap-1">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={editInterestValue}
+                                  onChange={(e) => setEditInterestValue(e.target.value)}
+                                  onKeyDown={(e) => handleInterestKeyDown(e, round.id)}
+                                  onBlur={() => cancelEditInterest()}
+                                  autoFocus
+                                  className="w-20 px-2 py-1 text-right text-sm border border-blue-400 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                                <button
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => saveInterest(round.id)}
+                                  disabled={savingInterest}
+                                  className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                >
+                                  {savingInterest ? (
+                                    <span className="text-xs">⏳</span>
+                                  ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  )}
+                                </button>
+                              </div>
+                            ) : (
+                              // Display mode
+                              canEditInterest(round) ? (
+                                <button
+                                  onClick={() => startEditInterest(round)}
+                                  className="group inline-flex items-center gap-1 hover:text-blue-600 transition-colors"
+                                >
+                                  <span>{getDisplayInterest(round)?.toLocaleString() || '-'}</span>
+                                  <span className="opacity-0 group-hover:opacity-100 text-gray-400 text-xs transition-opacity">✎</span>
+                                </button>
+                              ) : (
+                                <span>{getDisplayInterest(round)?.toLocaleString() || '-'}</span>
+                              )
+                            )}
                           </td>
                           <td className="px-4 py-3 text-sm text-right font-medium text-green-600">
                             {round.payoutAmount !== null ? round.payoutAmount.toLocaleString() : '-'}
@@ -1012,218 +1285,12 @@ export default function ShareGroupDetailPage() {
                     </tbody>
                   </table>
                 </div>
+
               </>
             )}
           </div>
         )}
 
-        {/* Summary Tab */}
-        {activeTab === 'summary' && (
-          <div className="p-6">
-            {isSummaryLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-              </div>
-            ) : !summaryData ? (
-              <div className="text-center py-12 text-gray-500">ไม่สามารถโหลดรายงานได้</div>
-            ) : (
-              <div className="space-y-8">
-                {/* Financial Summary */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <span>📊</span> สรุปการเงิน
-                  </h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-4">
-                      <p className="text-sm text-gray-500 mb-1">เงินต้นต่องวด</p>
-                      <p className="text-xl font-bold text-gray-900">
-                        {summaryData.financial.principalPerRound.toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4">
-                      <p className="text-sm text-blue-600 mb-1">เงินกองกลางต่องวด</p>
-                      <p className="text-xl font-bold text-blue-700">
-                        {summaryData.financial.poolPerRound.toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4">
-                      <p className="text-sm text-green-600 mb-1">เงินหมุนเวียนรวม</p>
-                      <p className="text-xl font-bold text-green-700">
-                        {summaryData.financial.totalPool.toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-4">
-                      <p className="text-sm text-orange-600 mb-1">งวดที่เสร็จสิ้น</p>
-                      <p className="text-xl font-bold text-orange-700">
-                        {summaryData.financial.completedRounds}/{summaryData.financial.totalRounds}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-3 gap-4">
-                    <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-xl p-4">
-                      <p className="text-sm text-yellow-600 mb-1">ดอกเบี้ยรวม</p>
-                      <p className="text-lg font-bold text-yellow-700">
-                        {summaryData.financial.totalInterest.toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-xl p-4">
-                      <p className="text-sm text-red-600 mb-1">รายการหักรับรวม</p>
-                      <p className="text-lg font-bold text-red-700">
-                        {summaryData.financial.totalDeductions.toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4">
-                      <p className="text-sm text-purple-600 mb-1">จ่ายผู้ชนะรวม</p>
-                      <p className="text-lg font-bold text-purple-700">
-                        {summaryData.financial.totalPayout.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Rounds Summary Table */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <span>📋</span> รายงวด
-                  </h3>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full">
-                      <thead>
-                        <tr className="bg-gray-50">
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">งวด</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">กำหนด</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ผู้ชนะ</th>
-                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ดอก</th>
-                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">หัก</th>
-                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ได้รับ</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {summaryData.rounds.map((round) => (
-                          <tr key={round.roundNumber} className={round.status === 'COMPLETED' ? '' : 'bg-gray-50/50'}>
-                            <td className="px-4 py-3 text-sm font-medium">{round.roundNumber}</td>
-                            <td className="px-4 py-3 text-sm text-gray-500">
-                              {new Date(round.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}
-                            </td>
-                            <td className="px-4 py-3 text-sm">
-                              {round.status === 'COMPLETED' ? round.winnerName : '-'}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-right">
-                              {round.status === 'COMPLETED' ? round.interest.toLocaleString() : '-'}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-right text-red-600">
-                              {round.status === 'COMPLETED' ? round.deductions.toLocaleString() : '-'}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-right font-medium text-green-600">
-                              {round.status === 'COMPLETED' ? round.payout.toLocaleString() : '-'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot className="bg-gray-100">
-                        <tr>
-                          <td colSpan={3} className="px-4 py-3 text-sm font-medium">รวมทั้งหมด</td>
-                          <td className="px-4 py-3 text-sm text-right font-medium">
-                            {summaryData.financial.totalInterest.toLocaleString()}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-right font-medium text-red-600">
-                            {summaryData.financial.totalDeductions.toLocaleString()}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-right font-medium text-green-600">
-                            {summaryData.financial.totalPayout.toLocaleString()}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Member History */}
-                {memberHistoryData && (
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                      <span>👥</span> ประวัติสมาชิก
-                    </h3>
-
-                    {memberHistoryData.stats.wonCount > 0 && (
-                      <div className="grid grid-cols-4 gap-4 mb-4">
-                        <div className="bg-blue-50 rounded-xl p-3">
-                          <p className="text-xs text-blue-600 mb-1">เปียแล้ว</p>
-                          <p className="text-lg font-bold text-blue-700">
-                            {memberHistoryData.stats.wonCount}/{memberHistoryData.stats.totalMembers}
-                          </p>
-                        </div>
-                        <div className="bg-yellow-50 rounded-xl p-3">
-                          <p className="text-xs text-yellow-600 mb-1">ดอกต่ำสุด</p>
-                          <p className="text-lg font-bold text-yellow-700">
-                            {memberHistoryData.stats.minInterest.toLocaleString()}
-                          </p>
-                          <p className="text-xs text-yellow-500 truncate">{memberHistoryData.stats.minInterestMember}</p>
-                        </div>
-                        <div className="bg-orange-50 rounded-xl p-3">
-                          <p className="text-xs text-orange-600 mb-1">ดอกสูงสุด</p>
-                          <p className="text-lg font-bold text-orange-700">
-                            {memberHistoryData.stats.maxInterest.toLocaleString()}
-                          </p>
-                          <p className="text-xs text-orange-500 truncate">{memberHistoryData.stats.maxInterestMember}</p>
-                        </div>
-                        <div className="bg-purple-50 rounded-xl p-3">
-                          <p className="text-xs text-purple-600 mb-1">ดอกเฉลี่ย</p>
-                          <p className="text-lg font-bold text-purple-700">
-                            {memberHistoryData.stats.avgInterest.toFixed(0)}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full">
-                        <thead>
-                          <tr className="bg-gray-50">
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">#</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ชื่อ</th>
-                            <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">งวด</th>
-                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ดอก</th>
-                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ได้รับ</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {memberHistoryData.members.map((member) => (
-                            <tr key={member.id} className={member.hasWon ? '' : 'bg-gray-50/50'}>
-                              <td className="px-4 py-3 text-sm">{member.order}</td>
-                              <td className="px-4 py-3 text-sm">
-                                {member.isHost && <span className="mr-1">👑</span>}
-                                {member.name}
-                              </td>
-                              <td className="px-4 py-3 text-sm text-center">
-                                {member.hasWon ? (
-                                  <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">
-                                    {member.roundNumber}
-                                  </span>
-                                ) : (
-                                  <span className="px-2 py-1 text-xs bg-gray-100 text-gray-500 rounded-full">
-                                    รอ
-                                  </span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-sm text-right">
-                                {member.hasWon ? member.interest.toLocaleString() : '-'}
-                              </td>
-                              <td className="px-4 py-3 text-sm text-right font-medium text-green-600">
-                                {member.hasWon ? member.payout.toLocaleString() : '-'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Modals */}
@@ -1682,112 +1749,248 @@ export default function ShareGroupDetailPage() {
       {/* Round Deductions Modal */}
       {showRoundDeductionModal && selectedRoundForDeduction && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto animate-scale-in">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold">
-                รายการหักรับ - งวดที่ {selectedRoundForDeduction.roundNumber}
-              </h2>
-              <button onClick={() => { setShowRoundDeductionModal(false); setSelectedRoundForDeduction(null); }} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-hidden animate-scale-in flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-100">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-semibold">
+                  งวดที่ {selectedRoundForDeduction.roundNumber} - {new Date(selectedRoundForDeduction.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                </h2>
+                <button onClick={() => { setShowRoundDeductionModal(false); setSelectedRoundForDeduction(null); }} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Tabs */}
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => handleRoundModalTabChange('deductions')}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    roundModalTab === 'deductions'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  รายการหักรับ
+                </button>
+                <button
+                  onClick={() => handleRoundModalTabChange('payments')}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
+                    roundModalTab === 'payments'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  การชำระเงิน
+                  {roundPaymentsData && (
+                    <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+                      roundModalTab === 'payments' ? 'bg-white/20' : 'bg-gray-300'
+                    }`}>
+                      {roundPaymentsData.paidCount}/{roundPaymentsData.totalMembers}
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-4">
-              <div className="bg-gray-50 rounded-xl p-4 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">กำหนดชำระ:</span>
-                  <span>{new Date(selectedRoundForDeduction.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-                </div>
-                {selectedRoundForDeduction.winner && (
-                  <div className="flex justify-between mt-2">
-                    <span className="text-gray-500">ผู้ชนะ:</span>
-                    <span className="font-medium">{selectedRoundForDeduction.winner.nickname}</span>
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {roundModalTab === 'deductions' ? (
+                <div className="space-y-4">
+                  <div className="bg-gray-50 rounded-xl p-4 text-sm">
+                    {selectedRoundForDeduction.winner && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">ผู้ชนะ:</span>
+                        <span className="font-medium">{selectedRoundForDeduction.winner.nickname}</span>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              {selectedRoundForDeduction.winningBid !== null && selectedRoundForDeduction.winningBid > 0 && (
-                <div className="flex justify-between items-center p-4 bg-yellow-50 rounded-xl">
-                  <span className="text-sm font-medium text-yellow-700">ดอกเบี้ย</span>
-                  <span className="text-sm text-red-600 font-bold">
-                    {selectedRoundForDeduction.winningBid.toLocaleString()} บาท
-                  </span>
-                </div>
-              )}
-
-              <div>
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="text-sm font-medium text-gray-700">รายการหักรับ</h3>
-                  <button
-                    type="button"
-                    onClick={handleAddDeductionItem}
-                    className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-                  >
-                    + เพิ่มรายการ
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {roundDeductionItems.map((item, index) => (
-                    <div key={index} className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl">
-                      <input
-                        type="text"
-                        value={item.name}
-                        onChange={(e) => handleDeductionItemChange(index, 'name', e.target.value)}
-                        placeholder="ชื่อรายการ"
-                        className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <input
-                        type="number"
-                        min={0}
-                        value={item.amount || ''}
-                        onChange={(e) => handleDeductionItemChange(index, 'amount', e.target.value)}
-                        placeholder="0"
-                        className="w-28 px-3 py-2 text-sm border border-gray-200 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <span className="text-xs text-gray-500">บาท</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveDeductionItem(index)}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                  {roundDeductionItems.length === 0 && (
-                    <div className="text-center py-6 text-gray-400 text-sm">
-                      ยังไม่มีรายการหักรับ
+                  {selectedRoundForDeduction.winningBid !== null && selectedRoundForDeduction.winningBid > 0 && (
+                    <div className="flex justify-between items-center p-4 bg-yellow-50 rounded-xl">
+                      <span className="text-sm font-medium text-yellow-700">ดอกเบี้ย</span>
+                      <span className="text-sm text-red-600 font-bold">
+                        {selectedRoundForDeduction.winningBid.toLocaleString()} บาท
+                      </span>
                     </div>
                   )}
-                </div>
-              </div>
 
-              <div className="bg-blue-50 rounded-xl p-4 space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-blue-600">รวมหักรับ:</span>
-                  <span className="font-bold text-red-600">
-                    {((selectedRoundForDeduction.winningBid || 0) + roundDeductionItems.reduce((sum, d) => sum + (d.amount || 0), 0)).toLocaleString()} บาท
-                  </span>
-                </div>
-                <div className="border-t border-blue-200 pt-3">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-blue-600">เงินกองกลาง:</span>
-                    <span className="font-medium">{((group?.principalAmount || 0) * (group?.maxMembers || 0)).toLocaleString()} บาท</span>
+                  <div>
+                    <div className="flex justify-between items-center mb-3">
+                      <h3 className="text-sm font-medium text-gray-700">รายการหักรับ</h3>
+                      <button
+                        type="button"
+                        onClick={handleAddDeductionItem}
+                        className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        + เพิ่มรายการ
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {roundDeductionItems.map((item, index) => (
+                        <div key={index} className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl">
+                          <input
+                            type="text"
+                            value={item.name}
+                            onChange={(e) => handleDeductionItemChange(index, 'name', e.target.value)}
+                            placeholder="ชื่อรายการ"
+                            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            value={item.amount || ''}
+                            onChange={(e) => handleDeductionItemChange(index, 'amount', e.target.value)}
+                            placeholder="0"
+                            className="w-28 px-3 py-2 text-sm border border-gray-200 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <span className="text-xs text-gray-500">บาท</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveDeductionItem(index)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                      {roundDeductionItems.length === 0 && (
+                        <div className="text-center py-6 text-gray-400 text-sm">
+                          ยังไม่มีรายการหักรับ
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sm mt-2">
-                    <span className="text-green-600 font-medium">ผู้ชนะได้รับ:</span>
-                    <span className="font-bold text-green-600 text-lg">
-                      {((group?.principalAmount || 0) * (group?.maxMembers || 0) - (selectedRoundForDeduction.winningBid || 0) - roundDeductionItems.reduce((sum, d) => sum + (d.amount || 0), 0)).toLocaleString()} บาท
-                    </span>
-                  </div>
-                </div>
-              </div>
 
-              <div className="flex gap-3 pt-4">
+                  <div className="bg-blue-50 rounded-xl p-4 space-y-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-blue-600">รวมหักรับ:</span>
+                      <span className="font-bold text-red-600">
+                        {((selectedRoundForDeduction.winningBid || 0) + roundDeductionItems.reduce((sum, d) => sum + (d.amount || 0), 0)).toLocaleString()} บาท
+                      </span>
+                    </div>
+                    <div className="border-t border-blue-200 pt-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-blue-600">เงินกองกลาง:</span>
+                        <span className="font-medium">{((group?.principalAmount || 0) * (group?.maxMembers || 0)).toLocaleString()} บาท</span>
+                      </div>
+                      <div className="flex justify-between text-sm mt-2">
+                        <span className="text-green-600 font-medium">ผู้ชนะได้รับ:</span>
+                        <span className="font-bold text-green-600 text-lg">
+                          {((group?.principalAmount || 0) * (group?.maxMembers || 0) - (selectedRoundForDeduction.winningBid || 0) - roundDeductionItems.reduce((sum, d) => sum + (d.amount || 0), 0)).toLocaleString()} บาท
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {roundPaymentsLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  ) : !roundPaymentsData ? (
+                    <div className="text-center py-12 text-gray-500">ไม่สามารถโหลดข้อมูลได้</div>
+                  ) : (
+                    <>
+                      {/* Payment Summary */}
+                      <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-4">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="text-sm text-gray-500">เงินต้น</div>
+                            <div className="font-bold text-lg">{roundPaymentsData.principalAmount.toLocaleString()} บาท/คน</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm text-gray-500">ชำระแล้ว</div>
+                            <div className="font-bold text-lg text-green-600">
+                              {Object.values(localPayments).filter(Boolean).length}/{roundPaymentsData.totalMembers} คน
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-3 h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-green-500 transition-all duration-300"
+                            style={{ width: `${(Object.values(localPayments).filter(Boolean).length / roundPaymentsData.totalMembers) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Payment List */}
+                      <div className="space-y-2">
+                        {roundPaymentsData.payments.map((payment) => (
+                          <div
+                            key={payment.groupMemberId}
+                            className={`p-4 rounded-xl border transition-all ${
+                              payment.isWinner
+                                ? 'bg-yellow-50 border-yellow-200'
+                                : localPayments[payment.groupMemberId]
+                                ? 'bg-green-50 border-green-200'
+                                : 'bg-gray-50 border-gray-200'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                {payment.isWinner ? (
+                                  <div className="w-8 h-8 rounded-full bg-yellow-400 flex items-center justify-center">
+                                    <span className="text-lg">🎉</span>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => handlePaymentToggle(payment.groupMemberId)}
+                                    className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all ${
+                                      localPayments[payment.groupMemberId]
+                                        ? 'bg-green-500 border-green-500 text-white'
+                                        : 'border-gray-300 hover:border-gray-400'
+                                    }`}
+                                  >
+                                    {localPayments[payment.groupMemberId] && (
+                                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                  </button>
+                                )}
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    {payment.isHost && <span className="text-xs">👑</span>}
+                                    <span className="font-medium">{payment.nickname}</span>
+                                    {payment.memberCode && (
+                                      <span className="text-xs text-gray-400">({payment.memberCode})</span>
+                                    )}
+                                  </div>
+                                  {payment.isWinner ? (
+                                    <div className="text-xs text-yellow-600 mt-0.5">เปียงวดนี้</div>
+                                  ) : payment.paidAt ? (
+                                    <div className="text-xs text-green-600 mt-0.5">
+                                      ชำระเมื่อ {new Date(payment.paidAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-gray-400 mt-0.5">ยังไม่ชำระ</div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                {!payment.isWinner && (
+                                  <div className="font-medium">{payment.amount.toLocaleString()} บาท</div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-100">
+              <div className="flex gap-3">
                 <button
                   type="button"
                   onClick={() => { setShowRoundDeductionModal(false); setSelectedRoundForDeduction(null); }}
@@ -1797,11 +2000,163 @@ export default function ShareGroupDetailPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleSaveRoundDeductions}
+                  onClick={roundModalTab === 'deductions' ? handleSaveRoundDeductions : handleSaveRoundPayments}
                   className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
                 >
                   บันทึก
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Schedule Modal */}
+      {showPaymentScheduleModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden animate-scale-in flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">📅</span>
+                <h2 className="text-xl font-semibold">ตารางชำระรายบุคคล</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={toggleAllMembers}
+                  className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  {expandedMembers.size === paymentScheduleData?.members.length ? 'ย่อทั้งหมด' : 'ขยายทั้งหมด'}
+                </button>
+                <button
+                  onClick={() => setShowPaymentScheduleModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {isPaymentScheduleLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : !paymentScheduleData ? (
+                <div className="text-center py-12 text-gray-500">ไม่สามารถโหลดข้อมูลได้</div>
+              ) : (
+                <div className="space-y-3">
+                  {paymentScheduleData.members.map((member) => (
+                    <div key={member.id} className="border border-gray-200 rounded-xl overflow-hidden">
+                      {/* Member Header */}
+                      <button
+                        onClick={() => toggleMemberExpand(member.id)}
+                        className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-lg">{expandedMembers.has(member.id) ? '▼' : '▶'}</span>
+                          <div className="flex items-center gap-2">
+                            {member.isHost && <span>👑</span>}
+                            <span className="font-medium">{member.name}</span>
+                            {member.memberCode && (
+                              <span className="text-xs text-gray-400">({member.memberCode})</span>
+                            )}
+                          </div>
+                          {member.wonRound && (
+                            <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
+                              เปียงวด {member.wonRound}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          รวม {member.totalPayment.toLocaleString()} บาท
+                        </div>
+                      </button>
+
+                      {/* Member Payments Table */}
+                      {expandedMembers.has(member.id) && (
+                        <div className="p-4 bg-white">
+                          <table className="min-w-full text-sm">
+                            <thead>
+                              <tr className="text-gray-500">
+                                <th className="text-left py-1 font-medium">งวด</th>
+                                <th className="text-left py-1 font-medium">วันที่</th>
+                                <th className="text-right py-1 font-medium">ต้องชำระ</th>
+                                <th className="text-center py-1 font-medium">สถานะ</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {member.payments.map((payment) => (
+                                <tr key={payment.roundNumber}>
+                                  <td className="py-2">{payment.roundNumber}</td>
+                                  <td className="py-2 text-gray-500">
+                                    {new Date(payment.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                                  </td>
+                                  <td className="py-2 text-right">
+                                    {payment.status === 'WON' ? (
+                                      <span className="text-green-600 font-medium">🎉 เปีย</span>
+                                    ) : (
+                                      <span>{payment.amount.toLocaleString()}</span>
+                                    )}
+                                  </td>
+                                  <td className="py-2 text-center">
+                                    {payment.status === 'WON' && (
+                                      <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">ได้รับเงิน</span>
+                                    )}
+                                    {payment.status === 'PAID' && (
+                                      <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">ชำระแล้ว</span>
+                                    )}
+                                    {payment.status === 'PENDING' && (
+                                      <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">⏳ รอชำระ</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between text-sm">
+                            <span className="text-gray-500">รวมต้องชำระ</span>
+                            <span className="font-medium">{member.totalPayment.toLocaleString()} บาท ({paymentScheduleData.totalRounds - 1} งวด)</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-600">
+                  💡 ทุกคนชำระ {paymentScheduleData?.principalAmount.toLocaleString() || 0} บาท/งวด ยกเว้นงวดที่เปีย
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={copyToClipboard}
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                  >
+                    <span>📋</span>
+                    คัดลอก
+                  </button>
+                  <button
+                    onClick={shareToLine}
+                    className="px-4 py-2 bg-green-500 text-white hover:bg-green-600 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                  >
+                    <span>📤</span>
+                    แชร์ LINE
+                  </button>
+                  <button
+                    onClick={() => setShowPaymentScheduleModal(false)}
+                    className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+                  >
+                    ปิด
+                  </button>
+                </div>
               </div>
             </div>
           </div>
