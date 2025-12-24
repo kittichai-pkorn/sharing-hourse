@@ -127,24 +127,21 @@ async function main() {
     },
   });
 
-  await prisma.groupDeductionTemplate.createMany({
-    data: [
-      { shareGroupId: group1.id, name: 'หักท้ายท้าว', amount: 200 },
-    ],
-  });
-
   const host1 = await prisma.groupMember.create({
     data: { shareGroupId: group1.id, userId: admin.id, nickname: 'ป้าแดง (ท้าว)' },
   });
+  const group1Members = [host1];
   for (let i = 0; i < 4; i++) {
-    await prisma.groupMember.create({
+    const gm = await prisma.groupMember.create({
       data: { shareGroupId: group1.id, memberId: members[i].id, nickname: members[i].nickname },
     });
+    group1Members.push(gm);
   }
 
   let date1 = new Date('2025-01-15');
+  const group1Rounds = [];
   for (let i = 1; i <= 5; i++) {
-    await prisma.round.create({
+    const round = await prisma.round.create({
       data: {
         shareGroupId: group1.id,
         roundNumber: i,
@@ -153,8 +150,20 @@ async function main() {
         winnerId: i === 1 ? host1.id : null,
       },
     });
+    group1Rounds.push(round);
     date1.setMonth(date1.getMonth() + 1);
   }
+
+  // สร้าง Deduction สำหรับงวดที่ 1 (COMPLETED)
+  await prisma.deduction.createMany({
+    data: [
+      { roundId: group1Rounds[0].id, type: 'HOST_FEE', amount: 500, note: 'ค่าดูแลวง' },
+      { roundId: group1Rounds[0].id, type: 'INTEREST', amount: 100, note: 'ดอกเบี้ย' },
+      { roundId: group1Rounds[0].id, type: 'HOST_DEDUCTION', amount: 200, note: 'หักท้ายท้าว' },
+      { roundId: group1Rounds[0].id, type: 'OTHER', amount: 100, note: 'ค่าอาหาร' },
+      { roundId: group1Rounds[0].id, type: 'OTHER', amount: 50, note: 'ค่าเดินทาง' },
+    ],
+  });
   console.log('Group 1:', group1.name, '(STEP_INTEREST - มีทั้งค่าดูแลและดอก)');
 
   // ==================== วงที่ 2: FIXED_INTEREST - มีทั้ง managementFee และ interestRate ====================
@@ -186,18 +195,38 @@ async function main() {
   }
 
   let date2 = new Date('2025-02-01');
+  const group2Rounds = [];
   for (let i = 1; i <= 5; i++) {
-    await prisma.round.create({
+    const round = await prisma.round.create({
       data: {
         shareGroupId: group2.id,
         roundNumber: i,
         dueDate: new Date(date2),
-        status: 'PENDING',
+        status: i <= 2 ? 'COMPLETED' : 'PENDING', // งวด 1-2 เสร็จแล้ว
         winnerId: i === 1 ? host2.id : null,
       },
     });
+    group2Rounds.push(round);
     date2.setMonth(date2.getMonth() + 1);
   }
+
+  // สร้าง Deduction สำหรับงวด 1-2 (COMPLETED)
+  await prisma.deduction.createMany({
+    data: [
+      // งวดที่ 1
+      { roundId: group2Rounds[0].id, type: 'HOST_FEE', amount: 300, note: 'ค่าดูแลวง' },
+      { roundId: group2Rounds[0].id, type: 'INTEREST', amount: 150, note: 'ดอกเบี้ย' },
+      { roundId: group2Rounds[0].id, type: 'HOST_DEDUCTION', amount: 150, note: 'หักท้ายท้าว' },
+      { roundId: group2Rounds[0].id, type: 'OTHER', amount: 50, note: 'ค่าน้ำชา' },
+      { roundId: group2Rounds[0].id, type: 'OTHER', amount: 30, note: 'ค่าขนม' },
+      { roundId: group2Rounds[0].id, type: 'OTHER', amount: 200, note: 'ค่าเบี้ยประกัน' },
+      // งวดที่ 2
+      { roundId: group2Rounds[1].id, type: 'HOST_FEE', amount: 300, note: 'ค่าดูแลวง' },
+      { roundId: group2Rounds[1].id, type: 'INTEREST', amount: 150, note: 'ดอกเบี้ย' },
+      { roundId: group2Rounds[1].id, type: 'HOST_DEDUCTION', amount: 150, note: 'หักท้ายท้าว' },
+      { roundId: group2Rounds[1].id, type: 'OTHER', amount: 50, note: 'ค่าน้ำชา' },
+    ],
+  });
   console.log('Group 2:', group2.name, '(FIXED_INTEREST - มีทั้งค่าดูแลและดอก)');
 
   // ==================== วงที่ 3: BID_INTEREST - มี managementFee แต่ไม่มี interestRate ====================
@@ -229,8 +258,9 @@ async function main() {
   }
 
   let date3 = new Date('2025-01-01');
+  const group3Rounds = [];
   for (let i = 1; i <= 5; i++) {
-    await prisma.round.create({
+    const round = await prisma.round.create({
       data: {
         shareGroupId: group3.id,
         roundNumber: i,
@@ -240,8 +270,24 @@ async function main() {
         winningBid: i === 2 ? 500 : 0,
       },
     });
+    group3Rounds.push(round);
     date3.setMonth(date3.getMonth() + 1);
   }
+
+  // สร้าง Deduction สำหรับงวด 1-2 (COMPLETED)
+  await prisma.deduction.createMany({
+    data: [
+      // งวดที่ 1
+      { roundId: group3Rounds[0].id, type: 'HOST_FEE', amount: 200, note: 'ค่าดูแลวง' },
+      { roundId: group3Rounds[0].id, type: 'OTHER', amount: 80, note: 'ค่าอาหาร' },
+      { roundId: group3Rounds[0].id, type: 'OTHER', amount: 100, note: 'ค่าสถานที่' },
+      // งวดที่ 2
+      { roundId: group3Rounds[1].id, type: 'HOST_FEE', amount: 200, note: 'ค่าดูแลวง' },
+      { roundId: group3Rounds[1].id, type: 'INTEREST', amount: 500, note: 'ดอกเบี้ย (ประมูล)' },
+      { roundId: group3Rounds[1].id, type: 'OTHER', amount: 80, note: 'ค่าอาหาร' },
+      { roundId: group3Rounds[1].id, type: 'OTHER', amount: 100, note: 'ค่าสถานที่' },
+    ],
+  });
   console.log('Group 3:', group3.name, '(BID_INTEREST - มีค่าดูแล ไม่แสดงดอก)');
 
   // ==================== วงที่ 4: STEP_INTEREST - มี interestRate แต่ไม่มี managementFee ====================
@@ -353,6 +399,90 @@ async function main() {
 
   console.log('Group 6:', group6.name, '(BID_INTEREST - ไม่มีค่าดูแล)');
 
+  // ====================================================================================
+  // Story 6.3: ทดสอบการดึงยอดค้างชำระจากวงอื่น
+  // ====================================================================================
+
+  // สถานการณ์:
+  // - ป้าเล็ก (M001) เล่นทั้งวง 1 (วงออมทรัพย์) และวง 3 (วงประมูลเพื่อนบ้าน)
+  // - ป้าเล็ก ชนะงวดที่ 2 ในวง 1
+  // - ป้าเล็ก มียอดค้างชำระในวง 3 (งวด 3, 4)
+  // - เมื่อเปิดงวด 2 ของวง 1, กด Tab "ดึงจากวงอื่น" → เห็นวง 3
+  // - เลือกวง 3 → เห็นงวด 3, 4 ที่ค้างชำระ
+
+  // ทำให้ ป้าเล็ก ชนะงวดที่ 2 ในวง 1
+  const group1Member1 = group1Members[1]; // ป้าเล็ก ใน group 1
+  await prisma.round.update({
+    where: { id: group1Rounds[1].id },
+    data: {
+      status: 'COMPLETED',
+      winnerId: group1Member1.id,
+      winningBid: 0,
+    },
+  });
+
+  // สร้าง Deduction สำหรับงวดที่ 2
+  await prisma.deduction.createMany({
+    data: [
+      { roundId: group1Rounds[1].id, type: 'HOST_FEE', amount: 500, note: 'ค่าดูแลวง' },
+      { roundId: group1Rounds[1].id, type: 'INTEREST', amount: 200, note: 'ดอกเบี้ย (100x2)' },
+    ],
+  });
+
+  // หา groupMember ของ ป้าเล็ก ในวง 3
+  const palekInGroup3 = await prisma.groupMember.findFirst({
+    where: {
+      shareGroupId: group3.id,
+      memberId: members[0].id, // ป้าเล็ก = M001
+    },
+  });
+
+  // สร้าง RoundPayment สำหรับวง 3 (วงประมูลเพื่อนบ้าน)
+  // ป้าเล็ก ชำระงวด 1, 2 แล้ว แต่ค้างงวด 3, 4, 5
+  const group3AllMembers = await prisma.groupMember.findMany({
+    where: { shareGroupId: group3.id },
+  });
+
+  for (const round of group3Rounds) {
+    for (const gm of group3AllMembers) {
+      // Host (ท้าว) ไม่ต้องชำระ
+      if (gm.userId !== null) continue;
+
+      // ป้าเล็ก - ชำระงวด 1, 2 แต่ค้างงวด 3, 4, 5
+      if (gm.id === palekInGroup3?.id) {
+        if (round.roundNumber <= 2) {
+          await prisma.roundPayment.create({
+            data: {
+              roundId: round.id,
+              groupMemberId: gm.id,
+              amount: group3.principalAmount,
+              paidAt: new Date(`2025-0${round.roundNumber}-15`),
+              note: 'ชำระตรงเวลา',
+            },
+          });
+        }
+        // งวด 3, 4, 5 ไม่สร้าง RoundPayment → ค้างชำระ
+        continue;
+      }
+
+      // สมาชิกอื่นๆ ชำระหมด (งวด 1, 2)
+      if (round.roundNumber <= 2) {
+        await prisma.roundPayment.create({
+          data: {
+            roundId: round.id,
+            groupMemberId: gm.id,
+            amount: group3.principalAmount,
+            paidAt: new Date(`2025-0${round.roundNumber}-10`),
+          },
+        });
+      }
+    }
+  }
+
+  console.log('Story 6.3 Test Data:');
+  console.log('  - ป้าเล็ก ชนะงวด 2 ในวง 1 (วงออมทรัพย์)');
+  console.log('  - ป้าเล็ก ค้างชำระงวด 3, 4, 5 ในวง 3 (วงประมูลเพื่อนบ้าน)');
+
   // ==================== Sample Notifications ====================
   await prisma.notification.deleteMany({
     where: { tenantId: tenant.id },
@@ -385,6 +515,29 @@ async function main() {
   console.log('');
   console.log('6. วงประมูลไม่มีค่าดูแล (BID_INTEREST)');
   console.log('   → ค่าดูแลวง: 0 บาท | ไม่แสดงดอกเบี้ย');
+  console.log('');
+  console.log('========================================');
+  console.log('Test Cases: Import Deductions (Story 6.3)');
+  console.log('========================================');
+  console.log('');
+  console.log('ดึงจาก Deduction (รายการหักรับจริงในแต่ละงวด)');
+  console.log('');
+  console.log('วง OPEN ที่มีรายการหักรับ:');
+  console.log('');
+  console.log('1. วงออมทรัพย์หมู่บ้าน (OPEN, งวด 1 COMPLETED)');
+  console.log('   → หักท้ายท้าว: 200 | ค่าอาหาร: 100 | ค่าเดินทาง: 50');
+  console.log('');
+  console.log('2. วงดอกคงที่ตลาดนัด (OPEN, งวด 1-2 COMPLETED)');
+  console.log('   → หักท้ายท้าว: 150 | ค่าน้ำชา: 50 | ค่าขนม: 30 | ค่าเบี้ยประกัน: 200');
+  console.log('');
+  console.log('3. วงประมูลเพื่อนบ้าน (OPEN, งวด 1-2 COMPLETED)');
+  console.log('   → ค่าอาหาร: 80 | ค่าสถานที่: 100');
+  console.log('');
+  console.log('Test Scenarios:');
+  console.log('- เปิดวง 1, กด "ดึงจากวงอื่น" → เห็นวง 2 และ 3');
+  console.log('- เปิดวง 2, กด "ดึงจากวงอื่น" → เห็นวง 1 และ 3');
+  console.log('- Import แล้ว → รายการเพิ่มใน tab รายการหักรับ');
+  console.log('- Import ชื่อซ้ำ → ข้ามไม่ import รายการที่ซ้ำ');
   console.log('========================================\n');
 }
 

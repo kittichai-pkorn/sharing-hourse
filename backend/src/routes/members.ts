@@ -284,6 +284,433 @@ router.delete('/:id', authMiddleware, adminMiddleware, async (req, res) => {
   }
 });
 
+// ==================== Member Groups & Round Payments ====================
+
+// GET /api/members/:memberId/groups - Get groups (OPEN) that member plays in
+router.get('/:memberId/groups', authMiddleware, async (req, res) => {
+  try {
+    const { memberId } = req.params;
+    const { status, excludeGroupId } = req.query;
+
+    // Verify member belongs to tenant
+    const member = await prisma.member.findFirst({
+      where: {
+        id: parseInt(memberId),
+        tenantId: req.user!.tenantId,
+      },
+    });
+
+    if (!member) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบลูกแชร์',
+      });
+    }
+
+    // Build where clause for shareGroup
+    const shareGroupWhere: any = {
+      tenantId: req.user!.tenantId,
+    };
+
+    if (status && typeof status === 'string') {
+      shareGroupWhere.status = status;
+    }
+
+    if (excludeGroupId && typeof excludeGroupId === 'string') {
+      shareGroupWhere.id = { not: parseInt(excludeGroupId) };
+    }
+
+    // Get groups that member is part of
+    const groupMembers = await prisma.groupMember.findMany({
+      where: {
+        memberId: parseInt(memberId),
+        shareGroup: shareGroupWhere,
+      },
+      include: {
+        shareGroup: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            maxMembers: true,
+            principalAmount: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    const groups = groupMembers.map(gm => gm.shareGroup);
+
+    res.json({
+      success: true,
+      data: groups,
+    });
+  } catch (error) {
+    console.error('Get member groups error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// GET /api/members/:memberId/round-payments - Get round payments for member in a group
+// Query params:
+//   - groupId: required - the group to get payments from
+//   - status: optional - 'PENDING' to get only pending payments (for import to deductions)
+router.get('/:memberId/round-payments', authMiddleware, async (req, res) => {
+  try {
+    const { memberId } = req.params;
+    const { groupId, status } = req.query;
+
+    if (!groupId || typeof groupId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'กรุณาระบุ groupId',
+      });
+    }
+
+    // Verify member belongs to tenant
+    const member = await prisma.member.findFirst({
+      where: {
+        id: parseInt(memberId),
+        tenantId: req.user!.tenantId,
+      },
+    });
+
+    if (!member) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบลูกแชร์',
+      });
+    }
+
+    // Verify group belongs to tenant
+    const shareGroup = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(groupId),
+        tenantId: req.user!.tenantId,
+      },
+    });
+
+    if (!shareGroup) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    // Get groupMember for this member in this group
+    const groupMember = await prisma.groupMember.findFirst({
+      where: {
+        memberId: parseInt(memberId),
+        shareGroupId: parseInt(groupId),
+      },
+    });
+
+    if (!groupMember) {
+      return res.status(404).json({
+        success: false,
+        error: 'ลูกแชร์ไม่ได้อยู่ในวงนี้',
+      });
+    }
+
+    // Get all rounds for this group
+    const rounds = await prisma.round.findMany({
+      where: { shareGroupId: parseInt(groupId) },
+      orderBy: { roundNumber: 'asc' },
+    });
+
+    // Get all payments for this member in this group
+    const roundPayments = await prisma.roundPayment.findMany({
+      where: { groupMemberId: groupMember.id },
+      include: { round: true },
+    });
+
+    // Map payments by roundId for easy lookup
+    const paymentsByRound = new Map(
+      roundPayments.map(p => [p.roundId, p])
+    );
+
+    // Build payments array with all rounds
+    const payments = rounds.map(round => {
+      const payment = paymentsByRound.get(round.id);
+      const isPaid = payment?.paidAt !== null && payment?.paidAt !== undefined;
+      const isOnTime = isPaid && payment!.paidAt! <= round.dueDate;
+
+      return {
+        roundId: round.id,
+        roundNumber: round.roundNumber,
+        amount: payment?.amount || shareGroup.principalAmount,
+        dueDate: round.dueDate,
+        paidAt: payment?.paidAt || null,
+        status: isPaid ? 'PAID' : 'PENDING',
+        isOnTime: isPaid ? isOnTime : null,
+        note: payment?.note || null,
+      };
+    });
+
+    // If status=PENDING, return only pending payments in simplified format
+    if (status === 'PENDING') {
+      const pendingPayments = payments
+        .filter(p => p.status === 'PENDING')
+        .map(p => ({
+          roundId: p.roundId,
+          roundNumber: p.roundNumber,
+          amount: p.amount,
+          dueDate: p.dueDate,
+        }));
+
+      return res.json({
+        success: true,
+        data: {
+          groupId: shareGroup.id,
+          groupName: shareGroup.name,
+          memberId: member.id,
+          memberName: member.nickname,
+          pendingPayments,
+        },
+      });
+    }
+
+    // Calculate summary for full response
+    const totalRounds = payments.length;
+    const paidRounds = payments.filter(p => p.status === 'PAID').length;
+    const pendingRounds = totalRounds - paidRounds;
+    const onTimePayments = payments.filter(p => p.isOnTime === true).length;
+    const latePayments = paidRounds - onTimePayments;
+    const paymentRate = totalRounds > 0 ? Math.round((paidRounds / totalRounds) * 100) : 0;
+    const onTimeRate = paidRounds > 0 ? Math.round((onTimePayments / paidRounds) * 100) : 0;
+
+    res.json({
+      success: true,
+      data: {
+        groupId: shareGroup.id,
+        groupName: shareGroup.name,
+        memberId: member.id,
+        memberName: member.nickname,
+        summary: {
+          totalRounds,
+          paidRounds,
+          pendingRounds,
+          onTimePayments,
+          latePayments,
+          paymentRate,
+          onTimeRate,
+        },
+        payments,
+      },
+    });
+  } catch (error) {
+    console.error('Get member round payments error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// ==================== GroupMember APIs (for Story 6.3) ====================
+
+// GET /api/members/group-member/:groupMemberId/other-groups - Get other groups that the member plays in
+router.get('/group-member/:groupMemberId/other-groups', authMiddleware, async (req, res) => {
+  try {
+    const { groupMemberId } = req.params;
+    const { status } = req.query;
+
+    // Get the groupMember to find memberId and current groupId
+    const currentGroupMember = await prisma.groupMember.findFirst({
+      where: { id: parseInt(groupMemberId) },
+      include: {
+        shareGroup: true,
+        member: true,
+      },
+    });
+
+    if (!currentGroupMember) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบลูกแชร์',
+      });
+    }
+
+    // Verify tenant access
+    if (currentGroupMember.shareGroup.tenantId !== req.user!.tenantId) {
+      return res.status(403).json({
+        success: false,
+        error: 'ไม่มีสิทธิ์เข้าถึง',
+      });
+    }
+
+    // Build where clause for other groups
+    const shareGroupWhere: any = {
+      tenantId: req.user!.tenantId,
+      id: { not: currentGroupMember.shareGroupId }, // Exclude current group
+    };
+
+    if (status && typeof status === 'string') {
+      shareGroupWhere.status = status;
+    }
+
+    // Get other groups that this member is part of
+    const otherGroupMembers = await prisma.groupMember.findMany({
+      where: {
+        memberId: currentGroupMember.memberId,
+        shareGroup: shareGroupWhere,
+      },
+      include: {
+        shareGroup: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            maxMembers: true,
+            principalAmount: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    const groups = otherGroupMembers.map(gm => ({
+      ...gm.shareGroup,
+      groupMemberId: gm.id, // Include groupMemberId for the other group
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        memberId: currentGroupMember.memberId,
+        memberName: currentGroupMember.member?.nickname || currentGroupMember.nickname || 'Unknown',
+        groups,
+      },
+    });
+  } catch (error) {
+    console.error('Get group member other groups error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// GET /api/members/group-member/:groupMemberId/pending-payments - Get pending payments for member in another group
+router.get('/group-member/:groupMemberId/pending-payments', authMiddleware, async (req, res) => {
+  try {
+    const { groupMemberId } = req.params;
+    const { targetGroupId } = req.query;
+
+    if (!targetGroupId || typeof targetGroupId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'กรุณาระบุ targetGroupId',
+      });
+    }
+
+    // Get the current groupMember to find memberId
+    const currentGroupMember = await prisma.groupMember.findFirst({
+      where: { id: parseInt(groupMemberId) },
+      include: {
+        shareGroup: true,
+        member: true,
+      },
+    });
+
+    if (!currentGroupMember) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบลูกแชร์',
+      });
+    }
+
+    // Verify tenant access
+    if (currentGroupMember.shareGroup.tenantId !== req.user!.tenantId) {
+      return res.status(403).json({
+        success: false,
+        error: 'ไม่มีสิทธิ์เข้าถึง',
+      });
+    }
+
+    // Verify target group belongs to tenant
+    const targetGroup = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(targetGroupId),
+        tenantId: req.user!.tenantId,
+      },
+    });
+
+    if (!targetGroup) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์เป้าหมาย',
+      });
+    }
+
+    // Get groupMember for this member in the target group
+    const targetGroupMember = await prisma.groupMember.findFirst({
+      where: {
+        memberId: currentGroupMember.memberId,
+        shareGroupId: parseInt(targetGroupId),
+      },
+    });
+
+    if (!targetGroupMember) {
+      return res.status(404).json({
+        success: false,
+        error: 'ลูกแชร์ไม่ได้อยู่ในวงเป้าหมาย',
+      });
+    }
+
+    // Get all rounds for the target group
+    const rounds = await prisma.round.findMany({
+      where: { shareGroupId: parseInt(targetGroupId) },
+      orderBy: { roundNumber: 'asc' },
+    });
+
+    // Get all payments for this member in the target group
+    const roundPayments = await prisma.roundPayment.findMany({
+      where: { groupMemberId: targetGroupMember.id },
+    });
+
+    // Map payments by roundId for easy lookup
+    const paymentsByRound = new Map(
+      roundPayments.map(p => [p.roundId, p])
+    );
+
+    // Find pending payments (rounds without paidAt)
+    const pendingPayments = rounds
+      .filter(round => {
+        const payment = paymentsByRound.get(round.id);
+        // Pending = no payment record or payment without paidAt
+        return !payment || payment.paidAt === null;
+      })
+      .map(round => ({
+        roundId: round.id,
+        roundNumber: round.roundNumber,
+        amount: targetGroup.principalAmount,
+        dueDate: round.dueDate,
+      }));
+
+    res.json({
+      success: true,
+      data: {
+        groupId: targetGroup.id,
+        groupName: targetGroup.name,
+        memberId: currentGroupMember.memberId,
+        memberName: currentGroupMember.member?.nickname || currentGroupMember.nickname || 'Unknown',
+        pendingPayments,
+      },
+    });
+  } catch (error) {
+    console.error('Get pending payments error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
 // ==================== GroupMember (ลูกแชร์ในวง) ====================
 
 // GET /api/members/group/:groupId - Get all members in a share group

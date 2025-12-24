@@ -120,6 +120,76 @@ interface PaymentSchedule {
   members: PaymentScheduleMember[];
 }
 
+interface ImportableGroup {
+  id: number;
+  name: string;
+  type: string;
+  maxMembers: number;
+  status: string;
+}
+
+interface ImportableTemplate {
+  id: number;
+  name: string;
+  amount: number;
+  selected?: boolean;
+}
+
+// Story 6.3: Pending payment from other group (for import as deduction)
+interface WinnerOtherGroup {
+  id: number;
+  name: string;
+  type: string;
+  maxMembers: number;
+  principalAmount: number;
+  status: string;
+  groupMemberId: number;
+}
+
+interface PendingPaymentItem {
+  roundId: number;
+  roundNumber: number;
+  amount: number;
+  dueDate: string;
+  selected?: boolean;
+}
+
+interface MemberGroupForPayment {
+  id: number;
+  name: string;
+  type: string;
+  maxMembers: number;
+  principalAmount: number;
+  status: string;
+}
+
+interface MemberPaymentItem {
+  roundNumber: number;
+  amount: number;
+  dueDate: string;
+  paidAt: string | null;
+  status: 'PAID' | 'PENDING';
+  isOnTime: boolean | null;
+  note: string | null;
+}
+
+interface MemberPaymentHistoryData {
+  groupId: number;
+  groupName: string;
+  memberId: number;
+  memberName: string;
+  summary: {
+    totalRounds: number;
+    paidRounds: number;
+    pendingRounds: number;
+    onTimePayments: number;
+    latePayments: number;
+    paymentRate: number;
+    onTimeRate: number;
+  };
+  payments: MemberPaymentItem[];
+}
+
 const typeLabels: Record<string, string> = {
   STEP_INTEREST: 'ขั้นบันได',
   BID_INTEREST: 'บิทดอกตาม',
@@ -175,7 +245,7 @@ export default function ShareGroupDetailPage() {
   const [showRoundDeductionModal, setShowRoundDeductionModal] = useState(false);
   const [selectedRoundForDeduction, setSelectedRoundForDeduction] = useState<Round | null>(null);
   const [roundDeductionItems, setRoundDeductionItems] = useState<{ id?: number; name: string; amount: number }[]>([]);
-  const [roundModalTab, setRoundModalTab] = useState<'deductions' | 'payments'>('deductions');
+  const [roundModalTab, setRoundModalTab] = useState<'deductions' | 'payments' | 'import'>('deductions');
   const [roundPaymentsData, setRoundPaymentsData] = useState<RoundPaymentsData | null>(null);
   const [roundPaymentsLoading, setRoundPaymentsLoading] = useState(false);
   const [localPayments, setLocalPayments] = useState<{ [key: number]: boolean }>({});
@@ -193,6 +263,26 @@ export default function ShareGroupDetailPage() {
 
   // Modal interest editing state (for BID_INTEREST type)
   const [modalInterestValue, setModalInterestValue] = useState<string>('');
+
+  // Import deductions from other groups states
+  const [importableGroups, setImportableGroups] = useState<ImportableGroup[]>([]);
+  const [selectedImportGroup, setSelectedImportGroup] = useState<number | null>(null);
+  const [importTemplates, setImportTemplates] = useState<ImportableTemplate[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importSuccess, setImportSuccess] = useState<string | null>(null);
+
+  // Story 6.3: Import pending payments from winner's other groups
+  const [winnerOtherGroups, setWinnerOtherGroups] = useState<WinnerOtherGroup[]>([]);
+  const [selectedWinnerGroup, setSelectedWinnerGroup] = useState<number | null>(null);
+  const [pendingPayments, setPendingPayments] = useState<PendingPaymentItem[]>([]);
+  const [winnerName, setWinnerName] = useState<string>('');
+
+  // Member Payment History Modal states (Story 6.3)
+  const [showMemberPaymentModal, setShowMemberPaymentModal] = useState(false);
+  const [memberPaymentGroups, setMemberPaymentGroups] = useState<MemberGroupForPayment[]>([]);
+  const [selectedMemberPaymentGroup, setSelectedMemberPaymentGroup] = useState<number | null>(null);
+  const [memberPaymentHistory, setMemberPaymentHistory] = useState<MemberPaymentHistoryData | null>(null);
+  const [memberPaymentLoading, setMemberPaymentLoading] = useState(false);
 
   // Auto-dismiss messages
   useEffect(() => {
@@ -478,11 +568,90 @@ export default function ShareGroupDetailPage() {
     }
   };
 
-  const handleRoundModalTabChange = (tab: 'deductions' | 'payments') => {
+  const handleRoundModalTabChange = async (tab: 'deductions' | 'payments' | 'import') => {
     setRoundModalTab(tab);
     if (tab === 'payments' && selectedRoundForDeduction && !roundPaymentsData) {
       fetchRoundPayments(selectedRoundForDeduction.id);
     }
+    if (tab === 'import') {
+      // Story 6.3: Fetch winner's other groups to import pending payments
+      const winnerId = selectedRoundForDeduction?.winnerId;
+      if (winnerId) {
+        setImportLoading(true);
+        setWinnerOtherGroups([]);
+        setSelectedWinnerGroup(null);
+        setPendingPayments([]);
+        try {
+          const response = await api.get(`/members/group-member/${winnerId}/other-groups?status=OPEN`);
+          setWinnerOtherGroups(response.data.data.groups || []);
+          setWinnerName(response.data.data.memberName || '');
+        } catch (err) {
+          console.error('Failed to fetch winner other groups:', err);
+          setWinnerOtherGroups([]);
+        } finally {
+          setImportLoading(false);
+        }
+      } else {
+        // No winner selected, show message
+        setWinnerOtherGroups([]);
+        setWinnerName('');
+      }
+    }
+  };
+
+  // Story 6.3: Fetch pending payments when winner's group is selected
+  const handleSelectWinnerGroup = async (groupId: number) => {
+    const winnerId = selectedRoundForDeduction?.winnerId;
+    if (!winnerId) return;
+
+    setSelectedWinnerGroup(groupId);
+    setImportLoading(true);
+    setPendingPayments([]);
+
+    try {
+      const response = await api.get(`/members/group-member/${winnerId}/pending-payments?targetGroupId=${groupId}`);
+      const payments = (response.data.data.pendingPayments || []).map((p: PendingPaymentItem) => ({
+        ...p,
+        selected: false,
+      }));
+      setPendingPayments(payments);
+    } catch (err) {
+      console.error('Failed to fetch pending payments:', err);
+      setPendingPayments([]);
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  // Story 6.3: Toggle pending payment selection
+  const togglePendingPaymentSelection = (roundId: number) => {
+    setPendingPayments(prev =>
+      prev.map(p => p.roundId === roundId ? { ...p, selected: !p.selected } : p)
+    );
+  };
+
+  // Story 6.3: Import selected pending payments as deduction items
+  const handleImportPendingPayments = () => {
+    const selectedPayments = pendingPayments.filter(p => p.selected);
+    if (selectedPayments.length === 0) return;
+
+    const selectedGroup = winnerOtherGroups.find(g => g.id === selectedWinnerGroup);
+    const groupName = selectedGroup?.name || 'วงอื่น';
+
+    // Create deduction items from selected pending payments
+    const newDeductions = selectedPayments.map(p => ({
+      name: `ค้าง${groupName} งวด ${p.roundNumber}`,
+      amount: p.amount,
+    }));
+
+    // Add to existing deduction items
+    setRoundDeductionItems([...roundDeductionItems, ...newDeductions]);
+
+    // Show success message and switch to deductions tab
+    setImportSuccess(`นำเข้า ${selectedPayments.length} รายการจาก "${groupName}"`);
+    setRoundModalTab('deductions');
+    setSelectedWinnerGroup(null);
+    setPendingPayments([]);
   };
 
   const buildAutoDeductionItems = (round?: Round) => {
@@ -583,6 +752,109 @@ export default function ShareGroupDetailPage() {
       const error = err as { response?: { data?: { message?: string } } };
       setError(error.response?.data?.message || 'เกิดข้อผิดพลาด');
     }
+  };
+
+  // Import deductions from other groups handlers
+  const handleSelectImportGroup = async (groupId: number) => {
+    setSelectedImportGroup(groupId);
+    setImportLoading(true);
+    setImportTemplates([]);
+
+    try {
+      const response = await api.get(`/share-groups/${groupId}/deduction-templates`);
+      const templates = response.data.data?.templates || [];
+      // Add selected flag to each template
+      setImportTemplates(templates.map((t: ImportableTemplate) => ({ ...t, selected: true })));
+    } catch (err) {
+      console.error('Failed to fetch templates:', err);
+      setImportTemplates([]);
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const toggleTemplateSelection = (templateId: number) => {
+    setImportTemplates(prev =>
+      prev.map(t => t.id === templateId ? { ...t, selected: !t.selected } : t)
+    );
+  };
+
+  const handleImportDeductions = () => {
+    const selectedTemplates = importTemplates.filter(t => t.selected);
+    if (selectedTemplates.length === 0) return;
+
+    // Get existing names to check for duplicates
+    const existingNames = roundDeductionItems.map(d => d.name);
+
+    // Filter out duplicates
+    const newTemplates = selectedTemplates.filter(t => !existingNames.includes(t.name));
+    const duplicateCount = selectedTemplates.length - newTemplates.length;
+
+    // Add new templates to deduction items
+    const newItems = newTemplates.map(t => ({ name: t.name, amount: t.amount }));
+    setRoundDeductionItems([...roundDeductionItems, ...newItems]);
+
+    // Show success message
+    const selectedGroup = importableGroups.find(g => g.id === selectedImportGroup);
+    if (duplicateCount > 0) {
+      setImportSuccess(`นำเข้า ${newTemplates.length} รายการจากวง "${selectedGroup?.name}" (ข้าม ${duplicateCount} รายการที่ซ้ำ)`);
+    } else {
+      setImportSuccess(`นำเข้า ${newTemplates.length} รายการจากวง "${selectedGroup?.name}"`);
+    }
+
+    // Switch back to deductions tab and reset import state
+    setRoundModalTab('deductions');
+    setSelectedImportGroup(null);
+    setImportTemplates([]);
+  };
+
+  // Member Payment History handlers (Story 6.3)
+  const openMemberPaymentModal = async () => {
+    if (!editingMember) return;
+
+    setShowMemberPaymentModal(true);
+    setMemberPaymentLoading(true);
+    setMemberPaymentGroups([]);
+    setSelectedMemberPaymentGroup(null);
+    setMemberPaymentHistory(null);
+
+    try {
+      // Fetch groups that this member is playing in (OPEN, excluding current group)
+      const response = await api.get(`/members/${editingMember.id}/groups`, {
+        params: { status: 'OPEN', excludeGroupId: id }
+      });
+      setMemberPaymentGroups(response.data.data);
+    } catch (err) {
+      console.error('Failed to fetch member groups:', err);
+    } finally {
+      setMemberPaymentLoading(false);
+    }
+  };
+
+  const fetchMemberPaymentHistory = async (groupId: number) => {
+    if (!editingMember) return;
+
+    setSelectedMemberPaymentGroup(groupId);
+    setMemberPaymentLoading(true);
+    setMemberPaymentHistory(null);
+
+    try {
+      const response = await api.get(`/members/${editingMember.id}/round-payments`, {
+        params: { groupId }
+      });
+      setMemberPaymentHistory(response.data.data);
+    } catch (err) {
+      console.error('Failed to fetch member payment history:', err);
+    } finally {
+      setMemberPaymentLoading(false);
+    }
+  };
+
+  const closeMemberPaymentModal = () => {
+    setShowMemberPaymentModal(false);
+    setMemberPaymentGroups([]);
+    setSelectedMemberPaymentGroup(null);
+    setMemberPaymentHistory(null);
   };
 
   const generateRounds = async () => {
@@ -1459,6 +1731,20 @@ export default function ShareGroupDetailPage() {
                 />
               </div>
 
+              {/* Button to view payment history from other groups */}
+              <div className="pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={openMemberPaymentModal}
+                  className="w-full py-3 px-4 bg-gray-50 text-gray-700 rounded-xl font-medium hover:bg-gray-100 transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  ดึงยอดจากวงอื่น
+                </button>
+              </div>
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
@@ -1814,6 +2100,19 @@ export default function ShareGroupDetailPage() {
                     </span>
                   )}
                 </button>
+                <button
+                  onClick={() => handleRoundModalTabChange('import')}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1 ${
+                    roundModalTab === 'import'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                  ดึงจากวงอื่น
+                </button>
               </div>
             </div>
 
@@ -1856,6 +2155,13 @@ export default function ShareGroupDetailPage() {
                       </span>
                     </div>
                   ) : null}
+
+                  {/* Success message from import */}
+                  {importSuccess && (
+                    <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">
+                      {importSuccess}
+                    </div>
+                  )}
 
                   <div>
                     <div className="flex justify-between items-center mb-3">
@@ -1952,7 +2258,7 @@ export default function ShareGroupDetailPage() {
                     );
                   })()}
                 </div>
-              ) : (
+              ) : roundModalTab === 'payments' ? (
                 <div className="space-y-4">
                   {roundPaymentsLoading ? (
                     <div className="flex items-center justify-center py-12">
@@ -2103,6 +2409,146 @@ export default function ShareGroupDetailPage() {
                     </>
                   )}
                 </div>
+              ) : (
+                /* Import Tab - Story 6.3: Import pending payments from winner's other groups */
+                <div className="space-y-4">
+                  {!selectedRoundForDeduction?.winnerId ? (
+                    <div className="text-center py-12">
+                      <div className="w-20 h-20 mx-auto mb-4 bg-yellow-100 rounded-full flex items-center justify-center">
+                        <span className="text-3xl">⚠️</span>
+                      </div>
+                      <p className="text-gray-600 font-medium text-lg">ยังไม่มีผู้ชนะในงวดนี้</p>
+                      <p className="text-sm text-gray-400 mt-2">ต้องบันทึกผู้ชนะก่อนจึงจะดึงยอดค้างชำระได้</p>
+                    </div>
+                  ) : importLoading && !selectedWinnerGroup ? (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  ) : winnerOtherGroups.length === 0 ? (
+                    <div className="text-center py-12">
+                      <div className="w-20 h-20 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                        <span className="text-3xl">📦</span>
+                      </div>
+                      <p className="text-gray-600 font-medium text-lg">{winnerName} ไม่ได้เล่นวงอื่นที่เปิดอยู่</p>
+                      <p className="text-sm text-gray-400 mt-2">ผู้ชนะต้องเล่นวงอื่นจึงจะดึงยอดค้างชำระได้</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Winner Info */}
+                      <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-200">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-yellow-400 flex items-center justify-center">
+                            <span className="text-lg">🎉</span>
+                          </div>
+                          <div>
+                            <div className="text-sm text-yellow-700">ผู้ชนะงวดนี้</div>
+                            <div className="font-semibold text-yellow-800">{winnerName}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Group Selection */}
+                      <div className="bg-purple-50 rounded-xl p-4">
+                        <label className="block text-sm font-medium text-purple-700 mb-2">
+                          เลือกวงที่ {winnerName} เล่นอยู่
+                        </label>
+                        <select
+                          value={selectedWinnerGroup || ''}
+                          onChange={(e) => {
+                            const groupId = parseInt(e.target.value);
+                            if (groupId) handleSelectWinnerGroup(groupId);
+                            else {
+                              setSelectedWinnerGroup(null);
+                              setPendingPayments([]);
+                            }
+                          }}
+                          className="w-full px-4 py-3 border border-purple-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white"
+                        >
+                          <option value="">-- เลือกวงแชร์ --</option>
+                          {winnerOtherGroups.map((g) => (
+                            <option key={g.id} value={g.id}>
+                              {g.name} ({typeLabels[g.type]}, {g.maxMembers} คน)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Pending Payments List */}
+                      {selectedWinnerGroup && (
+                        <>
+                          {importLoading ? (
+                            <div className="flex items-center justify-center py-8">
+                              <div className="w-6 h-6 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+                            </div>
+                          ) : pendingPayments.length === 0 ? (
+                            <div className="text-center py-8 bg-green-50 rounded-xl border border-green-200">
+                              <div className="w-14 h-14 mx-auto mb-3 bg-green-200 rounded-full flex items-center justify-center">
+                                <span className="text-2xl">✅</span>
+                              </div>
+                              <p className="text-green-700 font-medium">ไม่มียอดค้างชำระในวงนี้</p>
+                              <p className="text-xs text-green-600 mt-1">{winnerName} ชำระครบทุกงวดแล้ว</p>
+                            </div>
+                          ) : (
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-3">
+                                รายการค้างชำระ ({pendingPayments.length} งวด):
+                              </label>
+                              <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {pendingPayments.map((p) => (
+                                  <label
+                                    key={p.roundId}
+                                    className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
+                                      p.selected
+                                        ? 'bg-purple-50 border-purple-300 shadow-sm'
+                                        : 'bg-white border-gray-200 hover:border-purple-200 hover:bg-purple-50/30'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={p.selected || false}
+                                      onChange={() => togglePendingPaymentSelection(p.roundId)}
+                                      className="w-5 h-5 rounded text-purple-600 focus:ring-purple-500"
+                                    />
+                                    <div className="flex-1">
+                                      <span className="font-medium text-gray-700">งวดที่ {p.roundNumber}</span>
+                                      <div className="text-xs text-gray-400 mt-0.5">
+                                        กำหนด {new Date(p.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                                      </div>
+                                    </div>
+                                    <span className="text-red-600 font-medium">{p.amount.toLocaleString()} บาท</span>
+                                  </label>
+                                ))}
+                              </div>
+
+                              {/* Summary and Import Button */}
+                              {pendingPayments.filter(p => p.selected).length > 0 && (
+                                <div className="mt-4 p-4 bg-purple-50 rounded-xl border border-purple-200">
+                                  <div className="flex justify-between items-center mb-3">
+                                    <span className="text-sm text-purple-700">รวมที่เลือก:</span>
+                                    <span className="font-bold text-purple-800">
+                                      {pendingPayments.filter(p => p.selected).reduce((sum, p) => sum + p.amount, 0).toLocaleString()} บาท
+                                      <span className="font-normal text-sm ml-1">({pendingPayments.filter(p => p.selected).length} รายการ)</span>
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={handleImportPendingPayments}
+                                    className="w-full py-3 bg-purple-600 text-white rounded-xl font-medium hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+                                  >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                    </svg>
+                                    เพิ่มเป็นรายการหักรับ
+                                  </button>
+                                </div>
+                              )}
+
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
               )}
             </div>
 
@@ -2116,13 +2562,15 @@ export default function ShareGroupDetailPage() {
                 >
                   ปิด
                 </button>
-                <button
-                  type="button"
-                  onClick={roundModalTab === 'deductions' ? handleSaveRoundDeductions : handleSaveRoundPayments}
-                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
-                >
-                  บันทึก
-                </button>
+                {roundModalTab !== 'import' && (
+                  <button
+                    type="button"
+                    onClick={roundModalTab === 'deductions' ? handleSaveRoundDeductions : handleSaveRoundPayments}
+                    className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+                  >
+                    บันทึก
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -2276,6 +2724,172 @@ export default function ShareGroupDetailPage() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Member Payment History Modal (Story 6.3) */}
+      {showMemberPaymentModal && editingMember && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto animate-scale-in">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold">
+                ประวัติการชำระของ {editingMember.nickname || editingMember.memberCode}
+              </h2>
+              <button onClick={closeMemberPaymentModal} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {memberPaymentLoading && !selectedMemberPaymentGroup ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              </div>
+            ) : memberPaymentGroups.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="text-5xl mb-4">📦</div>
+                <p className="text-gray-500">{editingMember.nickname} ยังไม่เคยเล่นวงอื่นที่เปิดอยู่</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Group Selector */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    เลือกวง (เฉพาะวงที่ {editingMember.nickname} เคยเล่น)
+                  </label>
+                  <select
+                    value={selectedMemberPaymentGroup || ''}
+                    onChange={(e) => {
+                      const groupId = parseInt(e.target.value);
+                      if (groupId) fetchMemberPaymentHistory(groupId);
+                    }}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">-- เลือกวงแชร์ --</option>
+                    {memberPaymentGroups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name} ({typeLabels[g.type]}, {g.maxMembers} คน)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Payment History Content */}
+                {memberPaymentLoading && selectedMemberPaymentGroup ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  </div>
+                ) : memberPaymentHistory ? (
+                  <div className="space-y-4">
+                    {/* Summary */}
+                    <div className={`p-4 rounded-xl ${
+                      memberPaymentHistory.summary.paymentRate >= 80
+                        ? 'bg-green-50 border border-green-200'
+                        : memberPaymentHistory.summary.paymentRate >= 50
+                        ? 'bg-yellow-50 border border-yellow-200'
+                        : 'bg-red-50 border border-red-200'
+                    }`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-semibold text-gray-800">สรุปการชำระในวงนี้</h3>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          memberPaymentHistory.summary.paymentRate >= 80
+                            ? 'bg-green-100 text-green-700'
+                            : memberPaymentHistory.summary.paymentRate >= 50
+                            ? 'bg-yellow-100 text-yellow-700'
+                            : 'bg-red-100 text-red-700'
+                        }`}>
+                          {memberPaymentHistory.summary.paymentRate >= 80 ? 'ดีมาก' :
+                           memberPaymentHistory.summary.paymentRate >= 50 ? 'ปานกลาง' : 'ต้องระวัง'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <span className="text-gray-600">ชำระแล้ว:</span>{' '}
+                          <span className="font-medium">
+                            {memberPaymentHistory.summary.paidRounds}/{memberPaymentHistory.summary.totalRounds} งวด ({memberPaymentHistory.summary.paymentRate}%)
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">ค้างชำระ:</span>{' '}
+                          <span className="font-medium text-red-600">
+                            {memberPaymentHistory.summary.pendingRounds} งวด
+                          </span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-gray-600">ชำระตรงเวลา:</span>{' '}
+                          <span className="font-medium">
+                            {memberPaymentHistory.summary.onTimePayments}/{memberPaymentHistory.summary.paidRounds} งวด ({memberPaymentHistory.summary.onTimeRate}%)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Payment Details */}
+                    {memberPaymentHistory.payments.length === 0 ? (
+                      <div className="text-center py-8">
+                        <div className="text-4xl mb-3">📭</div>
+                        <p className="text-gray-500">ยังไม่มีข้อมูลการชำระในวงนี้</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <h3 className="font-medium text-gray-700 text-sm">รายละเอียดแต่ละงวด</h3>
+                        <div className="max-h-64 overflow-y-auto space-y-2">
+                          {memberPaymentHistory.payments.map((payment) => (
+                            <div
+                              key={payment.roundNumber}
+                              className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="text-sm text-gray-500">งวด {payment.roundNumber}</span>
+                                <span className="text-sm font-medium">
+                                  {payment.amount.toLocaleString()} บาท
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {payment.status === 'PAID' ? (
+                                  <>
+                                    <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
+                                      ชำระแล้ว
+                                    </span>
+                                    <span className={`px-2 py-1 text-xs rounded-full ${
+                                      payment.isOnTime
+                                        ? 'bg-blue-100 text-blue-700'
+                                        : 'bg-orange-100 text-orange-700'
+                                    }`}>
+                                      {payment.isOnTime ? 'ตรงเวลา' : 'ล่าช้า'}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                                    ค้างชำระ
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : selectedMemberPaymentGroup ? (
+                  <div className="text-center py-8">
+                    <div className="text-4xl mb-3">📭</div>
+                    <p className="text-gray-500">ยังไม่มีข้อมูลการชำระในวงนี้</p>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            <div className="flex justify-end pt-4 mt-4 border-t border-gray-100">
+              <button
+                onClick={closeMemberPaymentModal}
+                className="px-6 py-2.5 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                ปิด
+              </button>
             </div>
           </div>
         </div>

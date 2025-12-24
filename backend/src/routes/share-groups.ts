@@ -34,7 +34,7 @@ const createGroupSchema = z.object({
 // GET /api/share-groups - List all share groups for tenant
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const { search, status, type } = req.query;
+    const { search, status, type, role, excludeId } = req.query;
 
     // Build where clause
     const where: any = { tenantId: req.user!.tenantId };
@@ -49,6 +49,16 @@ router.get('/', authMiddleware, async (req, res) => {
 
     if (type && typeof type === 'string' && type !== 'all') {
       where.type = type;
+    }
+
+    // Filter by role (host = only groups where user is host)
+    if (role === 'host') {
+      where.hostId = req.user!.userId;
+    }
+
+    // Exclude specific group (for import from other groups)
+    if (excludeId && typeof excludeId === 'string') {
+      where.id = { not: parseInt(excludeId) };
     }
 
     const groups = await prisma.shareGroup.findMany({
@@ -649,6 +659,79 @@ router.get('/:id/deductions', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error('Get deduction templates error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// GET /api/share-groups/:id/deduction-templates - Get deductions from rounds for import
+router.get('/:id/deduction-templates', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const group = await prisma.shareGroup.findFirst({
+      where: {
+        id: parseInt(id),
+        tenantId: req.user!.tenantId,
+      },
+      include: {
+        rounds: {
+          include: {
+            deductions: true,
+          },
+        },
+      },
+    });
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบวงแชร์',
+      });
+    }
+
+    // Collect unique deductions from all rounds (by note)
+    const deductionMap = new Map<string, number>();
+
+    for (const round of group.rounds) {
+      for (const deduction of round.deductions) {
+        if (deduction.note) {
+          // Filter out system deductions (ค่าดูแลวง, ดอกเบี้ย, INTEREST, HOST_FEE)
+          if (
+            deduction.type !== 'INTEREST' &&
+            deduction.type !== 'HOST_FEE' &&
+            deduction.note !== 'ค่าดูแลวง' &&
+            !deduction.note.includes('ดอกเบี้ย')
+          ) {
+            // Use the latest amount for each unique note
+            deductionMap.set(deduction.note, deduction.amount);
+          }
+        }
+      }
+    }
+
+    // Convert map to array
+    const templates = Array.from(deductionMap.entries()).map(([name, amount], index) => ({
+      id: index + 1,
+      name,
+      amount,
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        groupId: group.id,
+        groupName: group.name,
+        groupType: group.type,
+        managementFee: group.managementFee,
+        interestRate: group.interestRate,
+        templates,
+      },
+    });
+  } catch (error) {
+    console.error('Get deduction templates for import error:', error);
     res.status(500).json({
       success: false,
       error: 'เกิดข้อผิดพลาด',
