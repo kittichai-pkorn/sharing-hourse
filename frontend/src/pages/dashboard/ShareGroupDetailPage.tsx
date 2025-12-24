@@ -541,6 +541,11 @@ export default function ShareGroupDetailPage() {
     setRoundDeductionItems(roundDeductionItems.filter((_, i) => i !== index));
   };
 
+  // Check if deduction is a system deduction (from group attributes)
+  const isSystemDeduction = (name: string) => {
+    return name === 'ค่าดูแลวง' || name.includes('ดอกเบี้ย');
+  };
+
   const handleDeductionItemChange = (index: number, field: 'name' | 'amount', value: string | number) => {
     const updated = [...roundDeductionItems];
     if (field === 'amount') {
@@ -1864,35 +1869,49 @@ export default function ShareGroupDetailPage() {
                       </button>
                     </div>
                     <div className="space-y-2">
-                      {roundDeductionItems.map((item, index) => (
-                        <div key={index} className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl">
-                          <input
-                            type="text"
-                            value={item.name}
-                            onChange={(e) => handleDeductionItemChange(index, 'name', e.target.value)}
-                            placeholder="ชื่อรายการ"
-                            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <input
-                            type="number"
-                            min={0}
-                            value={item.amount || ''}
-                            onChange={(e) => handleDeductionItemChange(index, 'amount', e.target.value)}
-                            placeholder="0"
-                            className="w-28 px-3 py-2 text-sm border border-gray-200 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <span className="text-xs text-gray-500">บาท</span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveDeductionItem(index)}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </div>
-                      ))}
+                      {roundDeductionItems.map((item, index) => {
+                        const isSystem = isSystemDeduction(item.name);
+                        return (
+                          <div key={index} className={`flex items-center gap-2 p-3 rounded-xl ${isSystem ? 'bg-purple-50' : 'bg-gray-50'}`}>
+                            <input
+                              type="text"
+                              value={item.name}
+                              onChange={(e) => handleDeductionItemChange(index, 'name', e.target.value)}
+                              placeholder="ชื่อรายการ"
+                              readOnly={isSystem}
+                              className={`flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                                isSystem
+                                  ? 'border-purple-200 bg-purple-50 text-purple-700 font-medium cursor-default'
+                                  : 'border-gray-200'
+                              }`}
+                            />
+                            <input
+                              type="number"
+                              min={0}
+                              value={item.amount || ''}
+                              onChange={(e) => handleDeductionItemChange(index, 'amount', e.target.value)}
+                              placeholder="0"
+                              className="w-28 px-3 py-2 text-sm border border-gray-200 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <span className="text-xs text-gray-500">บาท</span>
+                            <button
+                              type="button"
+                              onClick={() => !isSystem && handleRemoveDeductionItem(index)}
+                              disabled={isSystem}
+                              className={`p-2 rounded-lg transition-colors ${
+                                isSystem
+                                  ? 'text-gray-300 cursor-not-allowed'
+                                  : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
+                              }`}
+                              title={isSystem ? 'ไม่สามารถลบรายการจากวงได้' : 'ลบรายการ'}
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        );
+                      })}
                       {roundDeductionItems.length === 0 && (
                         <div className="text-center py-6 text-gray-400 text-sm">
                           ยังไม่มีรายการหักรับ
