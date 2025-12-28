@@ -82,15 +82,8 @@ router.get('/', authMiddleware, async (req, res) => {
       orderBy: { memberCode: 'asc' },
     });
 
-    // Exclude members already in a group if specified
-    if (excludeGroupId) {
-      const groupMembers = await prisma.groupMember.findMany({
-        where: { shareGroupId: parseInt(excludeGroupId as string) },
-        select: { memberId: true },
-      });
-      const excludeIds = new Set(groupMembers.map(gm => gm.memberId));
-      members = members.filter(m => !excludeIds.has(m.id));
-    }
+    // Note: No longer excluding members already in group
+    // Members can now join the same group multiple times (multiple hands/มือ)
 
     res.json({
       success: true,
@@ -823,27 +816,21 @@ router.post('/group/:groupId', authMiddleware, adminMiddleware, async (req, res)
       });
     }
 
-    // Check if member already in group
-    const existingGroupMember = await prisma.groupMember.findFirst({
-      where: {
-        shareGroupId: parseInt(groupId),
-        memberId: data.memberId,
-      },
+    // Get next order number for this group
+    const maxOrder = await prisma.groupMember.aggregate({
+      where: { shareGroupId: parseInt(groupId) },
+      _max: { order: true },
     });
+    const nextOrder = (maxOrder._max.order || 0) + 1;
 
-    if (existingGroupMember) {
-      return res.status(400).json({
-        success: false,
-        error: 'ลูกแชร์นี้อยู่ในวงแล้ว',
-      });
-    }
-
+    // Allow same member to join multiple times (multiple hands/มือ)
     const groupMember = await prisma.groupMember.create({
       data: {
         shareGroupId: parseInt(groupId),
         memberId: data.memberId,
         nickname: data.nickname || null,
         paymentAmount: data.paymentAmount || null,
+        order: nextOrder,
       },
       include: {
         member: true,

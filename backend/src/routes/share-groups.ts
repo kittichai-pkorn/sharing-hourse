@@ -249,6 +249,7 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
           shareGroupId: newGroup.id,
           userId: req.user!.userId,
           nickname: 'ท้าวแชร์',
+          order: 1, // ท้าวเป็นลำดับแรกเสมอ
         },
       });
 

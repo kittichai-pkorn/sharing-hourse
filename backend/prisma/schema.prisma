@@ -79,6 +79,7 @@ model ShareGroup {
   startDate       DateTime
   status          ShareGroupStatus @default(DRAFT)
   tailDeductionRounds Int?       // จำนวนงวดท้ายที่จะหัก (เช่น 3 = หัก 3 งวดสุดท้าย)
+  note            String?        // หมายเหตุ
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -147,6 +148,7 @@ model GroupMember {
   memberId      Int?     // Link to Member
   userId        Int?     // Optional: link to User account (for host)
   nickname      String?  // ชื่อเล่นในวง (optional, ถ้าไม่มีใช้จาก Member)
+  order         Int      @default(1) // ลำดับมือในวง (1, 2, 3...)
   paymentAmount Float?   // ยอดส่ง/งวด (สำหรับ STEP_INTEREST)
   joinedAt      DateTime @default(now())
 
@@ -156,8 +158,6 @@ model GroupMember {
   rounds           Round[]                @relation("RoundWinner")
   roundDeductions  MemberRoundDeduction[]
   roundPayments    RoundPayment[]
-
-  @@unique([shareGroupId, memberId])
 }
 
 // ==================== Round (งวด) ====================

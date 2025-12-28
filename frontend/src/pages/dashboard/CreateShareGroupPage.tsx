@@ -17,6 +17,8 @@ interface FormData {
   paymentPerRound: number | null; // ส่งต่องวด - for FIXED_INTEREST and BID_INTEREST
   // Tail Deduction
   tailDeductionRounds: number | null; // จำนวนงวดท้ายที่จะหัก
+  // Note
+  note: string;
 }
 
 const typeLabels: Record<string, { label: string; description: string }> = {
@@ -51,9 +53,8 @@ export default function CreateShareGroupPage() {
     interestRate: null,
     paymentPerRound: null,
     tailDeductionRounds: null,
+    note: '',
   });
-
-  const totalPool = formData.maxMembers * formData.principalAmount;
 
   const validateStep = (currentStep: number): boolean => {
     setError('');
@@ -116,6 +117,7 @@ export default function CreateShareGroupPage() {
         interestRate: formData.interestRate,
         paymentPerRound: formData.paymentPerRound,
         tailDeductionRounds: formData.tailDeductionRounds,
+        note: formData.note || null,
       });
 
       navigate(`/share-groups/${response.data.data.id}`);
@@ -223,12 +225,6 @@ export default function CreateShareGroupPage() {
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
-            </div>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-              <p className="text-sm text-blue-800">
-                เงินกองกลาง = {formData.principalAmount.toLocaleString()} x {formData.maxMembers} = <strong>{totalPool.toLocaleString()}</strong> บาท
-              </p>
             </div>
 
             <div>
@@ -340,6 +336,18 @@ export default function CreateShareGroupPage() {
                 )}
               </div>
             </div>
+
+            {/* Note Section */}
+            <div className="border-t pt-4 mt-4">
+              <label className="block text-sm font-medium text-gray-700">หมายเหตุ</label>
+              <textarea
+                value={formData.note}
+                onChange={(e) => setFormData({ ...formData, note: e.target.value })}
+                placeholder="บันทึกเพิ่มเติมเกี่ยวกับวงแชร์ (ไม่บังคับ)"
+                rows={3}
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
           </div>
         )}
 
@@ -364,10 +372,6 @@ export default function CreateShareGroupPage() {
               <div>
                 <span className="text-gray-500">เงินต้น:</span>
                 <span className="ml-2 font-medium">{formData.principalAmount.toLocaleString()} บาท</span>
-              </div>
-              <div>
-                <span className="text-gray-500">เงินกองกลาง:</span>
-                <span className="ml-2 font-medium">{totalPool.toLocaleString()} บาท</span>
               </div>
               <div>
                 <span className="text-gray-500">รอบชำระ:</span>
@@ -403,11 +407,17 @@ export default function CreateShareGroupPage() {
                   </span>
                 </div>
               )}
+              {formData.note && (
+                <div className="col-span-2">
+                  <span className="text-gray-500">หมายเหตุ:</span>
+                  <span className="ml-2 font-medium">{formData.note}</span>
+                </div>
+              )}
             </div>
 
             <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-md p-3">
               <p className="text-sm text-yellow-800">
-                ⚠️ หลังบันทึกแล้วจะแก้ไขบางข้อมูลไม่ได้
+                หลังบันทึกแล้วจะแก้ไขบางข้อมูลไม่ได้
               </p>
             </div>
           </div>
@@ -421,7 +431,7 @@ export default function CreateShareGroupPage() {
               onClick={prevStep}
               className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
             >
-              ← ก่อนหน้า
+              ก่อนหน้า
             </button>
           ) : (
             <button
@@ -439,7 +449,7 @@ export default function CreateShareGroupPage() {
               onClick={nextStep}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
             >
-              ถัดไป →
+              ถัดไป
             </button>
           ) : (
             <button

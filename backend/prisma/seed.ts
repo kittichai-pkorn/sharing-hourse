@@ -31,11 +31,48 @@ async function main() {
     },
   });
 
-  // Clear old data first
+  // Clear old data first (in correct order due to foreign keys)
   console.log('Clearing old data...');
+
+  // Get all share groups for this tenant
+  const oldGroups = await prisma.shareGroup.findMany({
+    where: { tenantId: tenant.id },
+    select: { id: true },
+  });
+  const groupIds = oldGroups.map(g => g.id);
+
+  if (groupIds.length > 0) {
+    // Delete round-related data first
+    await prisma.roundPayment.deleteMany({
+      where: { round: { shareGroupId: { in: groupIds } } },
+    });
+    await prisma.memberRoundDeduction.deleteMany({
+      where: { round: { shareGroupId: { in: groupIds } } },
+    });
+    await prisma.round.deleteMany({
+      where: { shareGroupId: { in: groupIds } },
+    });
+
+    // Delete group members
+    await prisma.groupMember.deleteMany({
+      where: { shareGroupId: { in: groupIds } },
+    });
+
+    // Delete deductions and templates
+    await prisma.deduction.deleteMany({
+      where: { round: { shareGroupId: { in: groupIds } } },
+    });
+    await prisma.groupDeductionTemplate.deleteMany({
+      where: { shareGroupId: { in: groupIds } },
+    });
+  }
+
+  // Now delete main entities
   await prisma.notification.deleteMany({ where: { tenantId: tenant.id } });
   await prisma.shareGroup.deleteMany({ where: { tenantId: tenant.id } });
   await prisma.member.deleteMany({ where: { tenantId: tenant.id } });
+
+  console.log('Old data cleared.');
 
   const admin = await prisma.user.upsert({
     where: {
