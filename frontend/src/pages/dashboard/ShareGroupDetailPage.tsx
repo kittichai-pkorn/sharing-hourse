@@ -18,10 +18,19 @@ interface Member {
   hasWon: boolean;
   wonRoundNumber: number | null;
   userId: number | null;
+  paymentAmount: number | null;
   user?: {
     firstName: string;
     lastName: string;
   };
+}
+
+// Available member for selection (not in this group)
+interface AvailableMember {
+  id: number;
+  memberCode: string;
+  nickname: string;
+  phone: string | null;
 }
 
 interface Round {
@@ -50,6 +59,8 @@ interface ShareGroup {
   hostId: number;
   managementFee: number | null;
   interestRate: number | null;
+  tailDeductionAmount: number | null;
+  tailDeductionRounds: number[] | null;
   members: Member[];
   deductionTemplates: DeductionTemplate[];
   summary: {
@@ -222,6 +233,13 @@ export default function ShareGroupDetailPage() {
     phone: '',
     lineId: '',
   });
+  // State for adding member to group
+  const [availableMembers, setAvailableMembers] = useState<AvailableMember[]>([]);
+  const [addMemberFormData, setAddMemberFormData] = useState({
+    memberId: 0,
+    nickname: '',
+    paymentAmount: '',
+  });
   const [winnerFormData, setWinnerFormData] = useState({
     memberId: 0,
     interest: 0,
@@ -319,6 +337,22 @@ export default function ShareGroupDetailPage() {
     }
   };
 
+  // Fetch members not in this group
+  const fetchAvailableMembers = async () => {
+    try {
+      const response = await api.get(`/members?excludeGroupId=${id}`);
+      setAvailableMembers(response.data.data);
+    } catch (err) {
+      console.error('Failed to fetch available members:', err);
+    }
+  };
+
+  // Open add member modal
+  const openAddMemberModal = () => {
+    fetchAvailableMembers();
+    setAddMemberFormData({ memberId: 0, nickname: '', paymentAmount: '' });
+    setShowAddModal(true);
+  };
 
   const fetchPaymentSchedule = async () => {
     setIsPaymentScheduleLoading(true);
@@ -691,6 +725,19 @@ export default function ShareGroupDetailPage() {
 
     items.push({ name: interestNote, amount: interestAmount });
 
+    // Add tail deduction if this round is selected
+    if (
+      group?.tailDeductionAmount &&
+      group?.tailDeductionRounds &&
+      currentRound &&
+      group.tailDeductionRounds.includes(currentRound.roundNumber)
+    ) {
+      items.push({
+        name: 'หักคำท้าย',
+        amount: group.tailDeductionAmount,
+      });
+    }
+
     if (group?.deductionTemplates) {
       group.deductionTemplates.forEach((t) => {
         if (t.name !== 'ค่าดูแลวง') {
@@ -712,7 +759,7 @@ export default function ShareGroupDetailPage() {
 
   // Check if deduction is a system deduction (from group attributes)
   const isSystemDeduction = (name: string) => {
-    return name === 'ค่าดูแลวง' || name.includes('ดอกเบี้ย');
+    return name === 'ค่าดูแลวง' || name.includes('ดอกเบี้ย') || name === 'หักคำท้าย';
   };
 
   const handleDeductionItemChange = (index: number, field: 'name' | 'amount', value: string | number) => {
@@ -878,11 +925,36 @@ export default function ShareGroupDetailPage() {
     e.preventDefault();
     setError('');
 
+    // Validate member selection
+    if (!addMemberFormData.memberId) {
+      setError('กรุณาเลือกลูกแชร์');
+      return;
+    }
+
+    // Validate paymentAmount for STEP_INTEREST
+    if (group?.type === 'STEP_INTEREST') {
+      const paymentAmount = parseFloat(addMemberFormData.paymentAmount);
+      if (!addMemberFormData.paymentAmount || isNaN(paymentAmount) || paymentAmount <= 0) {
+        setError('กรุณากรอกยอดส่ง/งวด (ต้องมากกว่า 0)');
+        return;
+      }
+    }
+
     try {
-      await api.post(`/members/group/${id}`, formData);
-      setMessage('เพิ่มลูกแชร์เรียบร้อยแล้ว');
+      const payload: { memberId: number; nickname?: string; paymentAmount?: number } = {
+        memberId: addMemberFormData.memberId,
+      };
+      if (addMemberFormData.nickname.trim()) {
+        payload.nickname = addMemberFormData.nickname.trim();
+      }
+      if (group?.type === 'STEP_INTEREST' && addMemberFormData.paymentAmount) {
+        payload.paymentAmount = parseFloat(addMemberFormData.paymentAmount);
+      }
+
+      await api.post(`/members/group/${id}`, payload);
+      setMessage('เพิ่มลูกแชร์เข้าวงเรียบร้อยแล้ว');
       setShowAddModal(false);
-      resetForm();
+      setAddMemberFormData({ memberId: 0, nickname: '', paymentAmount: '' });
       fetchGroup();
     } catch (err: unknown) {
       const error = err as { response?: { data?: { error?: string } } };
@@ -1330,7 +1402,7 @@ export default function ShareGroupDetailPage() {
               </div>
               {group.status === 'DRAFT' && group.members.length < group.maxMembers && (
                 <button
-                  onClick={() => setShowAddModal(true)}
+                  onClick={openAddMemberModal}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center gap-2"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1377,6 +1449,15 @@ export default function ShareGroupDetailPage() {
                             <span className="flex items-center gap-1">
                               <span className="text-green-500 font-bold text-xs">LINE</span>
                               {member.lineId}
+                            </span>
+                          )}
+                          {/* Display paymentAmount for STEP_INTEREST groups */}
+                          {group.type === 'STEP_INTEREST' && member.paymentAmount && member.userId !== group.hostId && (
+                            <span className="flex items-center gap-1 text-purple-600 font-medium">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              ส่ง {member.paymentAmount.toLocaleString()} บาท/งวด
                             </span>
                           )}
                         </div>
@@ -1588,12 +1669,12 @@ export default function ShareGroupDetailPage() {
       </div>
 
       {/* Modals */}
-      {/* Add Member Modal */}
+      {/* Add Member to Group Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto animate-scale-in">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold">เพิ่มลูกแชร์</h2>
+              <h2 className="text-xl font-semibold">เพิ่มลูกแชร์เข้าวง</h2>
               <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1602,52 +1683,63 @@ export default function ShareGroupDetailPage() {
             </div>
 
             <form onSubmit={handleAddMember} className="space-y-4">
-              <div className="text-sm text-gray-500 bg-gray-50 px-4 py-3 rounded-xl">
-                รหัสลูกแชร์จะถูกสร้างอัตโนมัติ
+              {/* Member Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">เลือกลูกแชร์ *</label>
+                {availableMembers.length === 0 ? (
+                  <div className="text-sm text-gray-500 bg-gray-50 px-4 py-3 rounded-xl">
+                    ไม่มีลูกแชร์ที่สามารถเพิ่มได้ (กรุณาสร้างลูกแชร์ใหม่ในเมนู "ลูกแชร์" ก่อน)
+                  </div>
+                ) : (
+                  <select
+                    value={addMemberFormData.memberId}
+                    onChange={(e) => setAddMemberFormData({ ...addMemberFormData, memberId: parseInt(e.target.value) })}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value={0}>-- เลือกลูกแชร์ --</option>
+                    {availableMembers.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        [{member.memberCode}] {member.nickname} {member.phone ? `- ${member.phone}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
+              {/* Nickname in this group (optional) */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อเล่น *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อเล่นในวง (ไม่บังคับ)</label>
                 <input
                   type="text"
-                  required
-                  value={formData.nickname}
-                  onChange={(e) => setFormData({ ...formData, nickname: e.target.value })}
+                  value={addMemberFormData.nickname}
+                  onChange={(e) => setAddMemberFormData({ ...addMemberFormData, nickname: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="เช่น พี่แดง, น้องเอ"
+                  placeholder="ถ้าไม่ใส่จะใช้ชื่อเล่นจากระบบ"
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">เบอร์โทร</label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="08x-xxx-xxxx"
-                />
-              </div>
+              {/* Payment Amount - Only for STEP_INTEREST */}
+              {group?.type === 'STEP_INTEREST' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">ยอดส่ง/งวด (บาท) *</label>
+                  <input
+                    type="number"
+                    value={addMemberFormData.paymentAmount}
+                    onChange={(e) => setAddMemberFormData({ ...addMemberFormData, paymentAmount: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="เช่น 500"
+                    min="1"
+                    step="any"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">ยอดที่ลูกแชร์ต้องส่งทุกงวด</p>
+                </div>
+              )}
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">ไลน์ไอดี</label>
-                <input
-                  type="text"
-                  value={formData.lineId}
-                  onChange={(e) => setFormData({ ...formData, lineId: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">ที่อยู่</label>
-                <textarea
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  rows={2}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                />
-              </div>
+              {error && (
+                <div className="text-red-500 text-sm bg-red-50 px-4 py-3 rounded-xl">
+                  {error}
+                </div>
+              )}
 
               <div className="flex gap-3 pt-4">
                 <button
@@ -1659,7 +1751,8 @@ export default function ShareGroupDetailPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+                  disabled={availableMembers.length === 0}
+                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   เพิ่ม
                 </button>

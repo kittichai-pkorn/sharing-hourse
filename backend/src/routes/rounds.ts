@@ -238,6 +238,7 @@ router.post('/:id/winner', authMiddleware, adminMiddleware, async (req, res) => 
             members: {
               include: {
                 rounds: true,
+                member: true,
               },
             },
             deductionTemplates: true,
@@ -287,14 +288,47 @@ router.post('/:id/winner', authMiddleware, adminMiddleware, async (req, res) => 
       }
     }
 
-    // Calculate payout
-    const totalPool = round.shareGroup.principalAmount * round.shareGroup.maxMembers;
+    // Calculate payout based on group type
+    let payoutAmount: number;
     const interestAmount = interest || 0;
-
-    // Get deduction templates total
     const templateDeductions = round.shareGroup.deductionTemplates.reduce((sum, d) => sum + d.amount, 0);
 
-    const payoutAmount = totalPool - interestAmount - templateDeductions;
+    if (round.shareGroup.type === 'STEP_INTEREST') {
+      // STEP_INTEREST: คำนวณยอดรับตามสูตรขั้นบันได
+      const hostMember = round.shareGroup.members.find(m => m.userId === round.shareGroup.hostId);
+      const isHostWinning = hostMember && memberId === hostMember.id;
+
+      // Get all non-host members' payment amounts
+      const nonHostMembers = round.shareGroup.members.filter(m => m.userId !== round.shareGroup.hostId);
+      const totalMemberPayments = nonHostMembers.reduce((sum, m) => sum + (m.paymentAmount || 0), 0);
+
+      if (round.roundNumber === 1 || isHostWinning) {
+        // งวดแรก หรือท้าวรับ: ยอดรับ = ผลรวมยอดส่งลูกแชร์ทั้งหมด
+        payoutAmount = totalMemberPayments;
+      } else {
+        // ลูกแชร์รับ: ยอดรับ = เงินต้น - ยอดส่งลูกแชร์คนอื่น - ยอดหักท้าย(ตัวเอง)
+        const winnerMember = round.shareGroup.members.find(m => m.id === memberId);
+        const winnerPaymentAmount = winnerMember?.paymentAmount || 0;
+
+        // ยอดส่งลูกแชร์คนอื่น = ผลรวมยอดส่งทั้งหมด - ยอดส่งตัวเอง
+        const otherMembersPayments = totalMemberPayments - winnerPaymentAmount;
+
+        // Check if this round is in tail deduction rounds
+        let tailDeduction = 0;
+        if (round.shareGroup.tailDeductionRounds && round.shareGroup.tailDeductionAmount) {
+          const tailRounds = JSON.parse(round.shareGroup.tailDeductionRounds) as number[];
+          if (tailRounds.includes(round.roundNumber)) {
+            tailDeduction = round.shareGroup.tailDeductionAmount;
+          }
+        }
+
+        payoutAmount = round.shareGroup.principalAmount - otherMembersPayments - winnerPaymentAmount - tailDeduction;
+      }
+    } else {
+      // Default calculation for other group types
+      const totalPool = round.shareGroup.principalAmount * round.shareGroup.maxMembers;
+      payoutAmount = totalPool - interestAmount - templateDeductions;
+    }
 
     // Use transaction to update round and create deductions
     const updatedRound = await prisma.$transaction(async (tx) => {

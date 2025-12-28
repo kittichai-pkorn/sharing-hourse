@@ -14,11 +14,14 @@ interface FormData {
   startDate: string;
   managementFee: number | null;
   interestRate: number | null;
+  paymentPerRound: number | null; // ส่งต่องวด - for FIXED_INTEREST and BID_INTEREST
+  // Tail Deduction
+  tailDeductionRounds: number | null; // จำนวนงวดท้ายที่จะหัก
 }
 
 const typeLabels: Record<string, { label: string; description: string }> = {
-  STEP_INTEREST: { label: 'ขั้นบันได', description: 'ดอกเบี้ยคงที่ + จับฉลาก' },
-  BID_INTEREST: { label: 'บิทดอกตาม', description: 'ประมูลดอก คนใส่น้อยสุดชนะ' },
+  STEP_INTEREST: { label: 'ขั้นบันได', description: 'ลูกแชร์แต่ละคนมียอดส่งคงที่ต่างกัน' },
+  BID_INTEREST: { label: 'บิทดอกตาม', description: 'ประมูลดอก คนใส่มากสุดชนะ' },
   FIXED_INTEREST: { label: 'ดอกตาม', description: 'ดอกเบี้ยคงที่ + จับฉลาก' },
   BID_PRINCIPAL: { label: 'บิทลดต้น (หักดอกท้าย)', description: 'ประมูล + ลดเงินต้นงวดถัดไป' },
   BID_PRINCIPAL_FIRST: { label: 'บิทลดต้น (หักดอกหน้า)', description: 'ประมูล + ลดเงินต้นทันที' },
@@ -46,6 +49,8 @@ export default function CreateShareGroupPage() {
     startDate: new Date().toISOString().split('T')[0],
     managementFee: null,
     interestRate: null,
+    paymentPerRound: null,
+    tailDeductionRounds: null,
   });
 
   const totalPool = formData.maxMembers * formData.principalAmount;
@@ -66,6 +71,16 @@ export default function CreateShareGroupPage() {
         }
         if (formData.principalAmount < 100) {
           setError('เงินต้นต้องไม่น้อยกว่า 100 บาท');
+          return false;
+        }
+        // FIXED_INTEREST requires interestRate
+        if (formData.type === 'FIXED_INTEREST' && !formData.interestRate) {
+          setError('กรุณากรอกดอกเบี้ย');
+          return false;
+        }
+        // FIXED_INTEREST and BID_INTEREST require paymentPerRound
+        if ((formData.type === 'FIXED_INTEREST' || formData.type === 'BID_INTEREST') && !formData.paymentPerRound) {
+          setError('กรุณากรอกยอดส่งต่องวด');
           return false;
         }
         return true;
@@ -99,6 +114,8 @@ export default function CreateShareGroupPage() {
         startDate: formData.startDate,
         managementFee: formData.managementFee,
         interestRate: formData.interestRate,
+        paymentPerRound: formData.paymentPerRound,
+        tailDeductionRounds: formData.tailDeductionRounds,
       });
 
       navigate(`/share-groups/${response.data.data.id}`);
@@ -259,6 +276,21 @@ export default function CreateShareGroupPage() {
               />
             </div>
 
+            {/* ส่งต่องวด - required for FIXED_INTEREST and BID_INTEREST */}
+            {(formData.type === 'FIXED_INTEREST' || formData.type === 'BID_INTEREST') && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700">ส่งต่องวด (บาท) *</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={formData.paymentPerRound || ''}
+                  onChange={(e) => setFormData({ ...formData, paymentPerRound: e.target.value ? parseInt(e.target.value) : null })}
+                  placeholder="ยอดที่ทุกคนส่งทุกงวด"
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">ค่าดูแลวง (บาท)</label>
@@ -271,19 +303,42 @@ export default function CreateShareGroupPage() {
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
-              {(formData.type === 'STEP_INTEREST' || formData.type === 'FIXED_INTEREST') && (
+              {/* ดอกเบี้ย - required only for FIXED_INTEREST */}
+              {formData.type === 'FIXED_INTEREST' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">ดอกเบี้ยคงที่ (บาท)</label>
+                  <label className="block text-sm font-medium text-gray-700">ดอกเบี้ย (บาท) *</label>
                   <input
                     type="number"
                     min={0}
                     value={formData.interestRate || ''}
                     onChange={(e) => setFormData({ ...formData, interestRate: e.target.value ? parseInt(e.target.value) : null })}
-                    placeholder="ไม่บังคับ"
+                    placeholder="ดอกเบี้ยคงที่ต่องวด"
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               )}
+            </div>
+
+            {/* Tail Deduction Section */}
+            <div className="border-t pt-4 mt-4">
+              <h4 className="text-sm font-medium text-gray-700 mb-3">หักคำท้าย (ค่าตอบแทนท้าว)</h4>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">จำนวนงวดท้าย</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={formData.maxMembers}
+                  value={formData.tailDeductionRounds || ''}
+                  onChange={(e) => setFormData({ ...formData, tailDeductionRounds: e.target.value ? parseInt(e.target.value) : null })}
+                  placeholder="เช่น 3 = หัก 3 งวดสุดท้าย"
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                />
+                {formData.tailDeductionRounds && formData.tailDeductionRounds > 0 && (
+                  <p className="mt-2 text-sm text-gray-500">
+                    หักจากงวด {formData.maxMembers - formData.tailDeductionRounds + 1} ถึง {formData.maxMembers}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -322,6 +377,12 @@ export default function CreateShareGroupPage() {
                     : cycleTypeLabels[formData.cycleType]}
                 </span>
               </div>
+              {formData.paymentPerRound && (
+                <div>
+                  <span className="text-gray-500">ส่งต่องวด:</span>
+                  <span className="ml-2 font-medium">{formData.paymentPerRound.toLocaleString()} บาท</span>
+                </div>
+              )}
               {formData.managementFee && (
                 <div>
                   <span className="text-gray-500">ค่าดูแลวง:</span>
@@ -330,8 +391,16 @@ export default function CreateShareGroupPage() {
               )}
               {formData.interestRate && (
                 <div>
-                  <span className="text-gray-500">ดอกเบี้ยคงที่:</span>
+                  <span className="text-gray-500">ดอกเบี้ย:</span>
                   <span className="ml-2 font-medium">{formData.interestRate.toLocaleString()} บาท</span>
+                </div>
+              )}
+              {formData.tailDeductionRounds && formData.tailDeductionRounds > 0 && (
+                <div className="col-span-2">
+                  <span className="text-gray-500">หักคำท้าย:</span>
+                  <span className="ml-2 font-medium">
+                    {formData.tailDeductionRounds} งวดท้าย (งวด {formData.maxMembers - formData.tailDeductionRounds + 1} - {formData.maxMembers})
+                  </span>
                 </div>
               )}
             </div>

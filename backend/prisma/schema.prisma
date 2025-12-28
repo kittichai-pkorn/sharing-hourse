@@ -71,12 +71,14 @@ model ShareGroup {
   type            ShareGroupType
   maxMembers      Int
   principalAmount Float          // เงินต้นต่องวด
-  interestRate    Float?         // อัตราดอกเบี้ย/ดอกเบี้ยคงที่ (for some types)
+  paymentPerRound Float?         // ส่งต่องวด - ยอดที่ทุกคนส่งทุกงวด (for FIXED_INTEREST, BID_INTEREST)
+  interestRate    Float?         // อัตราดอกเบี้ย/ดอกเบี้ยคงที่ (for FIXED_INTEREST)
   managementFee   Float?         // ค่าดูแลวง
   cycleType       CycleType      @default(MONTHLY)
   cycleDays       Int            @default(0) // 0 = monthly, >0 = every N days
   startDate       DateTime
   status          ShareGroupStatus @default(DRAFT)
+  tailDeductionRounds Int?       // จำนวนงวดท้ายที่จะหัก (เช่น 3 = หัก 3 งวดสุดท้าย)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -140,12 +142,13 @@ model Member {
 
 // ==================== Group Member (สมาชิกในวง) ====================
 model GroupMember {
-  id           Int      @id @default(autoincrement())
-  shareGroupId Int
-  memberId     Int?     // Link to Member
-  userId       Int?     // Optional: link to User account (for host)
-  nickname     String?  // ชื่อเล่นในวง (optional, ถ้าไม่มีใช้จาก Member)
-  joinedAt     DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  shareGroupId  Int
+  memberId      Int?     // Link to Member
+  userId        Int?     // Optional: link to User account (for host)
+  nickname      String?  // ชื่อเล่นในวง (optional, ถ้าไม่มีใช้จาก Member)
+  paymentAmount Float?   // ยอดส่ง/งวด (สำหรับ STEP_INTEREST)
+  joinedAt      DateTime @default(now())
 
   shareGroup       ShareGroup             @relation(fields: [shareGroupId], references: [id], onDelete: Cascade)
   member           Member?                @relation(fields: [memberId], references: [id], onDelete: Cascade)

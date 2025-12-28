@@ -62,6 +62,12 @@ const updateMemberSchema = z.object({
 const addToGroupSchema = z.object({
   memberId: z.number({ required_error: 'กรุณาเลือกลูกแชร์' }),
   nickname: z.string().optional(),
+  paymentAmount: z.number().optional(), // ยอดส่ง/งวด (สำหรับ STEP_INTEREST)
+});
+
+const updateGroupMemberSchema = z.object({
+  nickname: z.string().optional(),
+  paymentAmount: z.number().optional(), // ยอดส่ง/งวด (สำหรับ STEP_INTEREST)
 });
 
 // ==================== Member (ลูกแชร์ในระบบ) ====================
@@ -837,6 +843,7 @@ router.post('/group/:groupId', authMiddleware, adminMiddleware, async (req, res)
         shareGroupId: parseInt(groupId),
         memberId: data.memberId,
         nickname: data.nickname || null,
+        paymentAmount: data.paymentAmount || null,
       },
       include: {
         member: true,
@@ -857,6 +864,59 @@ router.post('/group/:groupId', authMiddleware, adminMiddleware, async (req, res)
     }
 
     console.error('Add to group error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
+// PUT /api/members/group-member/:id - Update group member (nickname, paymentAmount)
+router.put('/group-member/:id', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = updateGroupMemberSchema.parse(req.body);
+
+    // Verify the member belongs to a group in user's tenant
+    const groupMember = await prisma.groupMember.findFirst({
+      where: { id: parseInt(id) },
+      include: {
+        shareGroup: true,
+      },
+    });
+
+    if (!groupMember || groupMember.shareGroup.tenantId !== req.user!.tenantId) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบลูกแชร์',
+      });
+    }
+
+    const updatedGroupMember = await prisma.groupMember.update({
+      where: { id: parseInt(id) },
+      data: {
+        nickname: data.nickname !== undefined ? data.nickname : undefined,
+        paymentAmount: data.paymentAmount !== undefined ? data.paymentAmount : undefined,
+      },
+      include: {
+        member: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: updatedGroupMember,
+      message: 'อัพเดทข้อมูลเรียบร้อยแล้ว',
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        success: false,
+        error: error.errors[0].message,
+      });
+    }
+
+    console.error('Update group member error:', error);
     res.status(500).json({
       success: false,
       error: 'เกิดข้อผิดพลาด',

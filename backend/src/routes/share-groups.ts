@@ -6,6 +6,7 @@ import { notifyGroupOpened } from '../services/notificationService.js';
 
 const router = Router();
 
+
 // Validation schemas
 const deductionTemplateSchema = z.object({
   name: z.string().min(1, 'กรุณากรอกชื่อรายการ'),
@@ -22,6 +23,7 @@ const createGroupSchema = z.object({
   type: z.enum(['STEP_INTEREST', 'BID_INTEREST', 'FIXED_INTEREST', 'BID_PRINCIPAL', 'BID_PRINCIPAL_FIRST']),
   maxMembers: z.number().min(2, 'ต้องมีสมาชิกอย่างน้อย 2 คน'),
   principalAmount: z.number().min(1, 'กรุณากรอกเงินต้น'),
+  paymentPerRound: z.number().optional().nullable(), // ส่งต่องวด (for FIXED_INTEREST, BID_INTEREST)
   interestRate: z.number().optional().nullable(),
   managementFee: z.number().optional().nullable(),
   cycleType: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']).optional(),
@@ -29,6 +31,7 @@ const createGroupSchema = z.object({
   startDate: z.string(),
   deductionTemplates: z.array(deductionTemplateSchema).optional(),
   rounds: z.array(roundScheduleSchema).optional(), // Custom round dates
+  tailDeductionRounds: z.number().optional().nullable(), // จำนวนงวดท้ายที่จะหัก
 });
 
 // GET /api/share-groups - List all share groups for tenant
@@ -218,12 +221,14 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
           type: data.type,
           maxMembers: data.maxMembers,
           principalAmount: data.principalAmount,
+          paymentPerRound: data.paymentPerRound || null,
           interestRate: data.interestRate || null,
           managementFee: data.managementFee || null,
           cycleType: data.cycleType || 'MONTHLY',
           cycleDays: data.cycleDays || 0,
           startDate: new Date(data.startDate),
           status: 'DRAFT',
+          tailDeductionRounds: data.tailDeductionRounds || null,
         },
       });
 
@@ -381,11 +386,13 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
           type: data.type,
           maxMembers: data.maxMembers,
           principalAmount: data.principalAmount,
+          paymentPerRound: data.paymentPerRound,
           interestRate: data.interestRate,
           managementFee: data.managementFee,
           cycleType: data.cycleType,
           cycleDays: data.cycleDays,
           startDate: data.startDate ? new Date(data.startDate) : undefined,
+          tailDeductionRounds: data.tailDeductionRounds,
         },
       });
 

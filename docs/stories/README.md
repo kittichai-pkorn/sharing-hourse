@@ -11,7 +11,7 @@
 | 3. สร้างวงแชร์ | `epic-3-create-group/` | 4 | P0 |
 | 4. จัดการสมาชิก | `epic-4-members/` | 3 | P0-P2 |
 | 5. จัดการงวด | `epic-5-rounds/` | 5 | P0-P1 |
-| 6. รายการหักรับ | `epic-6-deductions/` | 2 | P1 |
+| 6. รายการหักรับ | `epic-6-deductions/` | 4 | P1 |
 | 7. เปิด/ปิดวง | `epic-7-group-status/` | 3 | P0-P1 |
 | 8. Notifications | `epic-8-notifications/` | 3 | P2 |
 | 9. Reports | `epic-9-reports/` | 2 | P2 |
