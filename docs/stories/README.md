@@ -8,8 +8,7 @@
 |------|--------|---------|----------|
 | 1. Authentication | `epic-1-auth/` | 5 | P0-P2 |
 | 2. Dashboard | `epic-2-dashboard/` | 3 | P1-P2 |
-| 3. สร้างวงแชร์ | `epic-3-create-group/` | 4 | P0 |
-| 4. จัดการสมาชิก | `epic-4-members/` | 4 | P0-P2 |
+| 3. จัดการสมาชิก | `epic-3-members/` | 4 | P0-P2 |
 
 ---
 
