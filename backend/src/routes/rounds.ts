@@ -216,6 +216,140 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
   }
 });
 
+// PUT /api/rounds/:id/assign - Assign member to round (for STEP_INTEREST)
+router.put('/:id/assign', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { memberId } = req.body; // memberId can be null to unassign
+
+    const round = await prisma.round.findFirst({
+      where: { id: parseInt(id) },
+      include: {
+        shareGroup: {
+          include: {
+            members: {
+              include: {
+                rounds: true,
+                member: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!round || round.shareGroup.tenantId !== req.user!.tenantId) {
+      return res.status(404).json({
+        success: false,
+        error: 'ไม่พบงวด',
+      });
+    }
+
+    // Only for STEP_INTEREST groups
+    if (round.shareGroup.type !== 'STEP_INTEREST') {
+      return res.status(400).json({
+        success: false,
+        error: 'ฟังก์ชันนี้ใช้ได้เฉพาะวงขั้นบันไดเท่านั้น',
+      });
+    }
+
+    // First round cannot be changed (always host)
+    if (round.roundNumber === 1) {
+      return res.status(400).json({
+        success: false,
+        error: 'งวดแรกเป็นของท้าวแชร์เสมอ ไม่สามารถเปลี่ยนแปลงได้',
+      });
+    }
+
+    // If unassigning (memberId is null)
+    if (!memberId) {
+      const updatedRound = await prisma.round.update({
+        where: { id: parseInt(id) },
+        data: {
+          winnerId: null,
+          payoutAmount: null,
+        },
+        include: {
+          winner: {
+            include: {
+              member: true,
+            },
+          },
+        },
+      });
+
+      return res.json({
+        success: true,
+        data: updatedRound,
+        message: 'ยกเลิกการกำหนดลูกแชร์เรียบร้อยแล้ว',
+      });
+    }
+
+    // Validate member exists in group
+    const member = round.shareGroup.members.find(m => m.id === memberId);
+    if (!member) {
+      return res.status(400).json({
+        success: false,
+        error: 'ไม่พบลูกแชร์ในวงนี้',
+      });
+    }
+
+    // Check if member is already assigned to another round
+    const existingAssignment = member.rounds.find(r => r.id !== round.id);
+    if (existingAssignment) {
+      return res.status(400).json({
+        success: false,
+        error: `ลูกแชร์นี้ถูกกำหนดให้งวดที่ ${existingAssignment.roundNumber} แล้ว`,
+      });
+    }
+
+    // Calculate payout for STEP_INTEREST
+    const hostMember = round.shareGroup.members.find(m => m.userId === round.shareGroup.hostId);
+    const nonHostMembers = round.shareGroup.members.filter(m => m.userId !== round.shareGroup.hostId);
+    const totalMemberPayments = nonHostMembers.reduce((sum, m) => sum + (m.paymentAmount || 0), 0);
+
+    let payoutAmount: number;
+    const isHostMember = hostMember && memberId === hostMember.id;
+
+    if (isHostMember) {
+      // Host receives sum of all member payments
+      payoutAmount = totalMemberPayments;
+    } else {
+      // Member receives: principal - other members' payments - own payment
+      const memberPaymentAmount = member.paymentAmount || 0;
+      const otherMembersPayments = totalMemberPayments - memberPaymentAmount;
+      payoutAmount = round.shareGroup.principalAmount - otherMembersPayments - memberPaymentAmount;
+    }
+
+    const updatedRound = await prisma.round.update({
+      where: { id: parseInt(id) },
+      data: {
+        winnerId: memberId,
+        payoutAmount: payoutAmount,
+      },
+      include: {
+        winner: {
+          include: {
+            member: true,
+          },
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: updatedRound,
+      message: 'กำหนดลูกแชร์เรียบร้อยแล้ว',
+    });
+  } catch (error) {
+    console.error('Assign member error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาด',
+    });
+  }
+});
+
 // POST /api/rounds/:id/winner - Record winner for a round
 router.post('/:id/winner', authMiddleware, adminMiddleware, async (req, res) => {
   try {

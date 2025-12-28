@@ -622,6 +622,51 @@ export default function ShareGroupDetailPage() {
     return true;
   };
 
+  // Assign member to round for STEP_INTEREST
+  const assignMemberToRound = async (roundId: number, memberId: number | null) => {
+    try {
+      await api.put(`/rounds/${roundId}/assign`, { memberId });
+      await fetchGroup();
+      await fetchRounds();
+      setMessage(memberId ? 'กำหนดลูกแชร์เรียบร้อยแล้ว' : 'ยกเลิกการกำหนดลูกแชร์เรียบร้อยแล้ว');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'เกิดข้อผิดพลาดในการกำหนดลูกแชร์');
+    }
+  };
+
+  // Get available members for assignment (not assigned to any round yet)
+  const getAvailableMembersForRound = (currentRound: Round) => {
+    if (!group) return [];
+    // Get all assigned member IDs from other rounds
+    const assignedMemberIds = new Set(
+      rounds
+        .filter(r => r.winnerId && r.id !== currentRound.id)
+        .map(r => r.winnerId)
+    );
+    // Return members not yet assigned
+    return group.members.filter(m => !assignedMemberIds.has(m.id));
+  };
+
+  // Calculate expected payout for STEP_INTEREST (for display before assignment)
+  const calculateStepInterestPayout = (memberId: number): number => {
+    if (!group || group.type !== 'STEP_INTEREST') return 0;
+
+    const hostMember = group.members.find(m => m.userId);
+    const nonHostMembers = group.members.filter(m => !m.userId);
+    const totalMemberPayments = nonHostMembers.reduce((sum, m) => sum + (m.paymentAmount || 0), 0);
+
+    const isHost = hostMember && memberId === hostMember.id;
+    if (isHost) {
+      return totalMemberPayments;
+    } else {
+      const member = group.members.find(m => m.id === memberId);
+      const memberPaymentAmount = member?.paymentAmount || 0;
+      const otherMembersPayments = totalMemberPayments - memberPaymentAmount;
+      return group.principalAmount - otherMembersPayments - memberPaymentAmount;
+    }
+  };
+
   const generateShareText = () => {
     if (!paymentScheduleData) return '';
 
@@ -1702,7 +1747,34 @@ export default function ShareGroupDetailPage() {
                             <td className="px-4 py-3 text-sm text-gray-500">
                               {new Date(round.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
                             </td>
-                            <td className="px-4 py-3 text-sm">{round.winner?.nickname || '-'}</td>
+                            <td className="px-4 py-3 text-sm">
+                              {round.roundNumber === 1 ? (
+                                // Round 1 is always host - display only
+                                <span className="text-purple-600 font-medium">
+                                  {round.winner?.nickname || 'ท้าว'} (ท้าว)
+                                </span>
+                              ) : (
+                                // Round 2+ - dropdown to select member
+                                <select
+                                  value={round.winnerId || ''}
+                                  onChange={(e) => assignMemberToRound(round.id, e.target.value ? parseInt(e.target.value) : null)}
+                                  className="w-full px-2 py-1 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                >
+                                  <option value="">-- เลือกลูกแชร์ --</option>
+                                  {getAvailableMembersForRound(round).map((member) => (
+                                    <option key={member.id} value={member.id}>
+                                      {member.nickname || member.memberCode} ({member.paymentAmount?.toLocaleString() || 0} บาท)
+                                    </option>
+                                  ))}
+                                  {/* Show current assigned member if exists */}
+                                  {round.winnerId && !getAvailableMembersForRound(round).find(m => m.id === round.winnerId) && (
+                                    <option value={round.winnerId}>
+                                      {round.winner?.nickname} ({getWinnerPaymentAmount(round)?.toLocaleString() || 0} บาท)
+                                    </option>
+                                  )}
+                                </select>
+                              )}
+                            </td>
                             <td className="px-4 py-3 text-sm text-right font-medium text-green-600">
                               {round.payoutAmount !== null ? round.payoutAmount.toLocaleString() : '-'}
                             </td>
