@@ -282,6 +282,11 @@ export default function ShareGroupDetailPage() {
   // Modal interest editing state (for BID_INTEREST type)
   const [modalInterestValue, setModalInterestValue] = useState<string>('');
 
+  // Payment amount editing state (for STEP_INTEREST type)
+  const [editingPaymentRoundId, setEditingPaymentRoundId] = useState<number | null>(null);
+  const [editPaymentValue, setEditPaymentValue] = useState<string>('');
+  const [savingPayment, setSavingPayment] = useState(false);
+
   // Import deductions from other groups states
   const [importableGroups, setImportableGroups] = useState<ImportableGroup[]>([]);
   const [selectedImportGroup, setSelectedImportGroup] = useState<number | null>(null);
@@ -554,6 +559,67 @@ export default function ShareGroupDetailPage() {
       const otherMembersPayments = totalMemberPayments - memberPaymentAmount;
       return group.principalAmount - otherMembersPayments - memberPaymentAmount;
     }
+  };
+
+  // Start editing payment amount for STEP_INTEREST
+  const startEditPayment = (round: Round) => {
+    const currentValue = getWinnerPaymentAmount(round);
+    setEditingPaymentRoundId(round.id);
+    setEditPaymentValue(currentValue?.toString() || '0');
+  };
+
+  // Cancel editing payment
+  const cancelEditPayment = () => {
+    setEditingPaymentRoundId(null);
+    setEditPaymentValue('');
+  };
+
+  // Save payment amount - updates the GroupMember's paymentAmount
+  const savePaymentAmount = async (round: Round) => {
+    const value = parseFloat(editPaymentValue);
+    if (isNaN(value) || value < 0) {
+      setError('กรุณากรอกยอดส่งที่ถูกต้อง');
+      return;
+    }
+
+    if (!round.winnerId) {
+      setError('ไม่พบผู้ชนะงวดนี้');
+      return;
+    }
+
+    setSavingPayment(true);
+    try {
+      // Update the GroupMember's paymentAmount
+      await api.put(`/members/group-member/${round.winnerId}`, { paymentAmount: value });
+
+      // Refresh group data to get updated values
+      await fetchGroup();
+      await fetchRounds();
+
+      setMessage('บันทึกยอดส่งเรียบร้อยแล้ว');
+      cancelEditPayment();
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'เกิดข้อผิดพลาดในการบันทึก');
+    } finally {
+      setSavingPayment(false);
+    }
+  };
+
+  // Handle keyboard events for payment input
+  const handlePaymentKeyDown = (e: React.KeyboardEvent, round: Round) => {
+    if (e.key === 'Enter') {
+      savePaymentAmount(round);
+    } else if (e.key === 'Escape') {
+      cancelEditPayment();
+    }
+  };
+
+  // Check if payment can be edited (must have winner)
+  const canEditPayment = (round: Round): boolean => {
+    if (!group || group.type !== 'STEP_INTEREST') return false;
+    if (!round.winnerId) return false;
+    return true;
   };
 
   const generateShareText = () => {
@@ -1641,7 +1707,48 @@ export default function ShareGroupDetailPage() {
                               {round.payoutAmount !== null ? round.payoutAmount.toLocaleString() : '-'}
                             </td>
                             <td className="px-4 py-3 text-sm text-right">
-                              {getWinnerPaymentAmount(round) !== null ? getWinnerPaymentAmount(round)?.toLocaleString() : '-'}
+                              {editingPaymentRoundId === round.id ? (
+                                // Edit mode
+                                <div className="flex items-center justify-end gap-1">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={editPaymentValue}
+                                    onChange={(e) => setEditPaymentValue(e.target.value)}
+                                    onKeyDown={(e) => handlePaymentKeyDown(e, round)}
+                                    onBlur={() => cancelEditPayment()}
+                                    autoFocus
+                                    className="w-20 px-2 py-1 text-right text-sm border border-blue-400 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                  <button
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => savePaymentAmount(round)}
+                                    disabled={savingPayment}
+                                    className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                  >
+                                    {savingPayment ? (
+                                      <span className="text-xs">⏳</span>
+                                    ) : (
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                  </button>
+                                </div>
+                              ) : (
+                                // Display mode
+                                canEditPayment(round) ? (
+                                  <button
+                                    onClick={() => startEditPayment(round)}
+                                    className="group inline-flex items-center gap-1 hover:text-blue-600 transition-colors"
+                                  >
+                                    <span>{getWinnerPaymentAmount(round)?.toLocaleString() ?? '-'}</span>
+                                    <span className="opacity-0 group-hover:opacity-100 text-gray-400 text-xs transition-opacity">✎</span>
+                                  </button>
+                                ) : (
+                                  <span>{getWinnerPaymentAmount(round) !== null ? getWinnerPaymentAmount(round)?.toLocaleString() : '-'}</span>
+                                )
+                              )}
                             </td>
                             <td className="px-4 py-3 text-center">
                               <button
