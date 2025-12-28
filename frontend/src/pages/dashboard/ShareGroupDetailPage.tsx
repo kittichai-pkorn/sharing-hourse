@@ -527,6 +527,35 @@ export default function ShareGroupDetailPage() {
     }
   };
 
+  // Get winner's payment amount for STEP_INTEREST groups
+  const getWinnerPaymentAmount = (round: Round): number | null => {
+    if (!group || group.type !== 'STEP_INTEREST' || !round.winnerId) return null;
+    // Find the winner member in group.members
+    // round.winner contains groupMember info with id matching winnerId
+    const winnerMember = group.members.find(m => {
+      // Check if this member's user or member id matches the winner
+      // The winnerId references GroupMember.id
+      return m.id === round.winnerId;
+    });
+    return winnerMember?.paymentAmount ?? null;
+  };
+
+  // Calculate expected payout for STEP_INTEREST (preview before winner is set)
+  const getExpectedStepInterestPayout = (round: Round, memberPaymentAmount: number): number => {
+    if (!group || group.type !== 'STEP_INTEREST') return 0;
+    const nonHostMembers = group.members.filter(m => !m.userId);
+    const totalMemberPayments = nonHostMembers.reduce((sum, m) => sum + (m.paymentAmount || 0), 0);
+
+    if (round.roundNumber === 1) {
+      // Host receives: sum of all member payments
+      return totalMemberPayments;
+    } else {
+      // Member receives: principal - other members' payments - own payment
+      const otherMembersPayments = totalMemberPayments - memberPaymentAmount;
+      return group.principalAmount - otherMembersPayments - memberPaymentAmount;
+    }
+  };
+
   const generateShareText = () => {
     if (!paymentScheduleData) return '';
 
@@ -1573,89 +1602,130 @@ export default function ShareGroupDetailPage() {
                 <div className="overflow-x-auto">
                   <table className="min-w-full">
                     <thead>
-                      <tr className="bg-gray-50">
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">งวด</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">กำหนดชำระ</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">สถานะ</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ผู้ชนะ</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ดอกเบี้ย</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ได้รับ</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">จัดการ</th>
-                      </tr>
+                      {group?.type === 'STEP_INTEREST' ? (
+                        // STEP_INTEREST: งวด | กำหนดชำระ | ลูกแชร์ | ยอดรับ | ยอดส่ง | จัดการ
+                        <tr className="bg-gray-50">
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">งวด</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">กำหนดชำระ</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ลูกแชร์</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ยอดรับ</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ยอดส่ง</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">จัดการ</th>
+                        </tr>
+                      ) : (
+                        // Other types: งวด | กำหนดชำระ | สถานะ | ผู้ชนะ | ดอกเบี้ย | ได้รับ | จัดการ
+                        <tr className="bg-gray-50">
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">งวด</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">กำหนดชำระ</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">สถานะ</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ผู้ชนะ</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ดอกเบี้ย</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ได้รับ</th>
+                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">จัดการ</th>
+                        </tr>
+                      )}
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {rounds.map((round) => (
-                        <tr key={round.id} className={round.winnerId ? '' : 'bg-gray-50/50'}>
-                          <td className="px-4 py-3">
-                            <span className="font-medium text-gray-900">{round.roundNumber}</span>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-500">
-                            {new Date(round.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
-                          </td>
-                          <td className="px-4 py-3">
-                            {round.status === 'COMPLETED' ? (
-                              <span className="px-2.5 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">สำเร็จ</span>
-                            ) : (
-                              <span className="px-2.5 py-1 text-xs bg-gray-100 text-gray-500 rounded-full font-medium">รอ</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-sm">{round.winner?.nickname || '-'}</td>
-                          <td className="px-4 py-3 text-sm text-right">
-                            {editingInterestRoundId === round.id ? (
-                              // Edit mode
-                              <div className="flex items-center justify-end gap-1">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={editInterestValue}
-                                  onChange={(e) => setEditInterestValue(e.target.value)}
-                                  onKeyDown={(e) => handleInterestKeyDown(e, round.id)}
-                                  onBlur={() => cancelEditInterest()}
-                                  autoFocus
-                                  className="w-20 px-2 py-1 text-right text-sm border border-blue-400 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                                <button
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => saveInterest(round.id)}
-                                  disabled={savingInterest}
-                                  className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
-                                >
-                                  {savingInterest ? (
-                                    <span className="text-xs">⏳</span>
-                                  ) : (
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  )}
-                                </button>
-                              </div>
-                            ) : (
-                              // Display mode
-                              canEditInterest(round) ? (
-                                <button
-                                  onClick={() => startEditInterest(round)}
-                                  className="group inline-flex items-center gap-1 hover:text-blue-600 transition-colors"
-                                >
-                                  <span>{getDisplayInterest(round)?.toLocaleString() || '-'}</span>
-                                  <span className="opacity-0 group-hover:opacity-100 text-gray-400 text-xs transition-opacity">✎</span>
-                                </button>
+                        group?.type === 'STEP_INTEREST' ? (
+                          // STEP_INTEREST row: งวด | กำหนดชำระ | ลูกแชร์ | ยอดรับ | ยอดส่ง | จัดการ
+                          <tr key={round.id} className={round.winnerId ? '' : 'bg-gray-50/50'}>
+                            <td className="px-4 py-3">
+                              <span className="font-medium text-gray-900">{round.roundNumber}</span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-500">
+                              {new Date(round.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                            </td>
+                            <td className="px-4 py-3 text-sm">{round.winner?.nickname || '-'}</td>
+                            <td className="px-4 py-3 text-sm text-right font-medium text-green-600">
+                              {round.payoutAmount !== null ? round.payoutAmount.toLocaleString() : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right">
+                              {getWinnerPaymentAmount(round) !== null ? getWinnerPaymentAmount(round)?.toLocaleString() : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <button
+                                onClick={() => openRoundDeductionModal(round)}
+                                className="px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg text-sm transition-colors"
+                              >
+                                จัดการ
+                              </button>
+                            </td>
+                          </tr>
+                        ) : (
+                          // Other types row: งวด | กำหนดชำระ | สถานะ | ผู้ชนะ | ดอกเบี้ย | ได้รับ | จัดการ
+                          <tr key={round.id} className={round.winnerId ? '' : 'bg-gray-50/50'}>
+                            <td className="px-4 py-3">
+                              <span className="font-medium text-gray-900">{round.roundNumber}</span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-500">
+                              {new Date(round.dueDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                            </td>
+                            <td className="px-4 py-3">
+                              {round.status === 'COMPLETED' ? (
+                                <span className="px-2.5 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">สำเร็จ</span>
                               ) : (
-                                <span>{getDisplayInterest(round)?.toLocaleString() || '-'}</span>
-                              )
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-right font-medium text-green-600">
-                            {round.payoutAmount !== null ? round.payoutAmount.toLocaleString() : '-'}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <button
-                              onClick={() => openRoundDeductionModal(round)}
-                              className="px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg text-sm transition-colors"
-                            >
-                              จัดการ
-                            </button>
-                          </td>
-                        </tr>
+                                <span className="px-2.5 py-1 text-xs bg-gray-100 text-gray-500 rounded-full font-medium">รอ</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-sm">{round.winner?.nickname || '-'}</td>
+                            <td className="px-4 py-3 text-sm text-right">
+                              {editingInterestRoundId === round.id ? (
+                                // Edit mode
+                                <div className="flex items-center justify-end gap-1">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={editInterestValue}
+                                    onChange={(e) => setEditInterestValue(e.target.value)}
+                                    onKeyDown={(e) => handleInterestKeyDown(e, round.id)}
+                                    onBlur={() => cancelEditInterest()}
+                                    autoFocus
+                                    className="w-20 px-2 py-1 text-right text-sm border border-blue-400 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                  <button
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => saveInterest(round.id)}
+                                    disabled={savingInterest}
+                                    className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                  >
+                                    {savingInterest ? (
+                                      <span className="text-xs">⏳</span>
+                                    ) : (
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                  </button>
+                                </div>
+                              ) : (
+                                // Display mode
+                                canEditInterest(round) ? (
+                                  <button
+                                    onClick={() => startEditInterest(round)}
+                                    className="group inline-flex items-center gap-1 hover:text-blue-600 transition-colors"
+                                  >
+                                    <span>{getDisplayInterest(round)?.toLocaleString() || '-'}</span>
+                                    <span className="opacity-0 group-hover:opacity-100 text-gray-400 text-xs transition-opacity">✎</span>
+                                  </button>
+                                ) : (
+                                  <span>{getDisplayInterest(round)?.toLocaleString() || '-'}</span>
+                                )
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right font-medium text-green-600">
+                              {round.payoutAmount !== null ? round.payoutAmount.toLocaleString() : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <button
+                                onClick={() => openRoundDeductionModal(round)}
+                                className="px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg text-sm transition-colors"
+                              >
+                                จัดการ
+                              </button>
+                            </td>
+                          </tr>
+                        )
                       ))}
                     </tbody>
                   </table>
