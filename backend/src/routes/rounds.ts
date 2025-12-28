@@ -314,15 +314,14 @@ router.post('/:id/winner', authMiddleware, adminMiddleware, async (req, res) => 
         const otherMembersPayments = totalMemberPayments - winnerPaymentAmount;
 
         // Check if this round is in tail deduction rounds
-        let tailDeduction = 0;
-        if (round.shareGroup.tailDeductionRounds && round.shareGroup.tailDeductionAmount) {
-          const tailRounds = JSON.parse(round.shareGroup.tailDeductionRounds) as number[];
-          if (tailRounds.includes(round.roundNumber)) {
-            tailDeduction = round.shareGroup.tailDeductionAmount;
-          }
+        // tailDeductionRounds is now the count of tail rounds (e.g., 3 = last 3 rounds)
+        let isTailRound = false;
+        if (round.shareGroup.tailDeductionRounds && round.shareGroup.tailDeductionRounds > 0) {
+          const firstTailRound = round.shareGroup.maxMembers - round.shareGroup.tailDeductionRounds + 1;
+          isTailRound = round.roundNumber >= firstTailRound;
         }
 
-        payoutAmount = round.shareGroup.principalAmount - otherMembersPayments - winnerPaymentAmount - tailDeduction;
+        payoutAmount = round.shareGroup.principalAmount - otherMembersPayments - winnerPaymentAmount;
       }
     } else {
       // Default calculation for other group types
