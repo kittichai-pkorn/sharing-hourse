@@ -285,13 +285,50 @@ router.put('/:id/assign', authMiddleware, adminMiddleware, async (req, res) => {
       });
     }
 
-    // Validate member exists in group
-    const member = round.shareGroup.members.find(m => m.id === memberId);
+    // First try to find by GroupMember.id, then by Member.id (tenantMemberId)
+    let member = round.shareGroup.members.find(m => m.id === memberId);
+
+    // If not found by GroupMember.id, try to find by Member.id and auto-add to group
     if (!member) {
-      return res.status(400).json({
-        success: false,
-        error: 'ไม่พบลูกแชร์ในวงนี้',
-      });
+      const groupMemberByMemberId = round.shareGroup.members.find(m => m.memberId === memberId);
+      if (groupMemberByMemberId) {
+        member = groupMemberByMemberId;
+      } else {
+        // Check if this is a valid tenant member
+        const tenantMember = await prisma.member.findFirst({
+          where: {
+            id: memberId,
+            tenantId: req.user!.tenantId,
+          },
+        });
+
+        if (!tenantMember) {
+          return res.status(400).json({
+            success: false,
+            error: 'ไม่พบลูกแชร์นี้ในระบบ',
+          });
+        }
+
+        // Auto-add member to group with default paymentAmount = 0
+        const newGroupMember = await prisma.groupMember.create({
+          data: {
+            shareGroupId: round.shareGroup.id,
+            memberId: tenantMember.id,
+            paymentAmount: 0, // Default, ท้าวต้องมาปรับภายหลัง
+            nickname: tenantMember.nickname,
+          },
+          include: {
+            rounds: true,
+            member: true,
+          },
+        });
+
+        member = {
+          ...newGroupMember,
+          rounds: newGroupMember.rounds,
+          member: newGroupMember.member,
+        };
+      }
     }
 
     // Check if member is already assigned to another round

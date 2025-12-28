@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 
-interface Member {
+interface GroupMember {
   id: number;
   memberId: number | null;
   userId: number | null;
@@ -24,6 +24,16 @@ interface Member {
   } | null;
   hasWon: boolean;
   wonRoundNumber: number | null;
+}
+
+// Standalone member from tenant's member list
+interface TenantMember {
+  id: number;
+  memberCode: string;
+  nickname: string;
+  address: string | null;
+  phone: string | null;
+  lineId: string | null;
 }
 
 interface Round {
@@ -57,7 +67,7 @@ interface ShareGroup {
   status: string;
   startDate: string;
   hostId: number;
-  members: Member[];
+  members: GroupMember[];
   rounds: Round[];
   summary: {
     wonCount: number;
@@ -94,6 +104,7 @@ export default function ShareGroupDetailPage() {
   const navigate = useNavigate();
   const [group, setGroup] = useState<ShareGroup | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [allMembers, setAllMembers] = useState<TenantMember[]>([]);
 
   // Deduction Modal State
   const [showDeductionModal, setShowDeductionModal] = useState(false);
@@ -115,9 +126,19 @@ export default function ShareGroupDetailPage() {
     }
   }, [id]);
 
+  const fetchAllMembers = useCallback(async () => {
+    try {
+      const response = await api.get('/members');
+      setAllMembers(response.data.data || []);
+    } catch (err) {
+      console.error('Failed to fetch members:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchGroup();
-  }, [fetchGroup]);
+    fetchAllMembers();
+  }, [fetchGroup, fetchAllMembers]);
 
   // Fetch deductions for a round
   const fetchDeductions = async (roundId: number, round: Round) => {
@@ -221,7 +242,7 @@ export default function ShareGroupDetailPage() {
   }, 0);
 
   // Get member name
-  const getMemberName = (member: Member): string => {
+  const getMemberName = (member: GroupMember): string => {
     if (member.nickname) return member.nickname;
     if (member.isHost) {
       return member.user ? `${member.user.firstName} ${member.user.lastName}` : 'ท้าว';
@@ -233,7 +254,7 @@ export default function ShareGroupDetailPage() {
   };
 
   // Get member code
-  const getMemberCode = (member: Member): string => {
+  const getMemberCode = (member: GroupMember): string => {
     if (member.isHost) return '-';
     return member.member?.memberCode || '-';
   };
@@ -246,13 +267,13 @@ export default function ShareGroupDetailPage() {
   };
 
   // Get winner member object
-  const getWinnerMember = (round: Round): Member | null => {
+  const getWinnerMember = (round: Round): GroupMember | null => {
     if (!round.winnerId || !group) return null;
     return group.members.find(m => m.id === round.winnerId) || null;
   };
 
   // Get host member
-  const getHostMember = (): Member | null => {
+  const getHostMember = (): GroupMember | null => {
     if (!group) return null;
     return group.members.find(m => m.isHost) || null;
   };
@@ -281,7 +302,7 @@ export default function ShareGroupDetailPage() {
   const getRoundMethod = (round: Round): string => {
     const autoInfo = isAutoAssignRound(round.roundNumber);
     if (autoInfo.isAuto) return autoInfo.reason;
-    if (round.winnerId) return 'กำหนดล่วงหน้า';
+    if (round.winnerId) return 'เลือก';
     return '-';
   };
 
@@ -312,7 +333,7 @@ export default function ShareGroupDetailPage() {
   };
 
   // Get available members for assignment (non-host members who haven't won yet)
-  const getAvailableMembers = (): Member[] => {
+  const getAvailableMembers = (): GroupMember[] => {
     if (!group) return [];
     return group.members.filter(m => !m.isHost && !m.hasWon);
   };
@@ -441,25 +462,40 @@ export default function ShareGroupDetailPage() {
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1">
                           {group.type === 'STEP_INTEREST' && !autoInfo.isAuto && round.status !== 'COMPLETED' ? (
-                            <select
-                              value={round.winnerId || ''}
-                              onChange={(e) => assignWinner(round.id, e.target.value ? parseInt(e.target.value) : null)}
-                              className="px-2 py-1 bg-gray-700 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            >
-                              <option value="">เลือกผู้เปีย</option>
-                              {group.members
-                                .filter(m => !m.isHost)
-                                .map((member) => (
-                                  <option
-                                    key={member.id}
-                                    value={member.id}
-                                    disabled={member.hasWon && member.wonRoundNumber !== round.roundNumber}
-                                  >
-                                    {getMemberName(member)}
-                                    {member.hasWon && member.wonRoundNumber !== round.roundNumber && ' (เปียแล้ว)'}
-                                  </option>
-                                ))}
-                            </select>
+                            (() => {
+                              // Get current winner's Member.id for select value
+                              const winnerGroupMember = round.winnerId
+                                ? group.members.find(gm => gm.id === round.winnerId)
+                                : null;
+                              const currentWinnerMemberId = winnerGroupMember?.memberId || winnerGroupMember?.member?.id || '';
+
+                              return (
+                                <select
+                                  value={currentWinnerMemberId}
+                                  onChange={(e) => assignWinner(round.id, e.target.value ? parseInt(e.target.value) : null)}
+                                  className="px-2 py-1 bg-gray-700 border border-gray-600 rounded text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                  <option value="">เลือกผู้เปีย</option>
+                                  {allMembers.map((tenantMember) => {
+                                    // Check if this member is already in the group
+                                    const groupMember = group.members.find(
+                                      gm => gm.memberId === tenantMember.id || gm.member?.id === tenantMember.id
+                                    );
+                                    const hasWon = groupMember?.hasWon && groupMember.wonRoundNumber !== round.roundNumber;
+
+                                    return (
+                                      <option
+                                        key={tenantMember.id}
+                                        value={tenantMember.id}
+                                        disabled={hasWon}
+                                      >
+                                        {tenantMember.nickname || tenantMember.memberCode}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              );
+                            })()
                           ) : (
                             <span className="text-sm text-gray-100">{displayWinner}</span>
                           )}
