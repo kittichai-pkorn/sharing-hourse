@@ -46,34 +46,34 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="mt-6 text-center text-3xl font-bold text-gray-900">
+        <h2 className="mt-6 text-center text-3xl font-bold text-gray-100">
           ลงทะเบียนท้าวแชร์
         </h2>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+        <div className="bg-gray-800 py-8 px-4 shadow-lg sm:rounded-lg sm:px-10 border border-gray-700">
           <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded">
+              <div className="bg-red-900/50 border border-red-700 text-red-400 px-4 py-3 rounded">
                 {error}
               </div>
             )}
 
             {success && (
-              <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded">
+              <div className="bg-green-900/50 border border-green-700 text-green-400 px-4 py-3 rounded">
                 {success}
               </div>
             )}
 
-            <div className="border-b pb-4">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">ข้อมูลวง</h3>
+            <div className="border-b border-gray-700 pb-4">
+              <h3 className="text-lg font-medium text-gray-100 mb-4">ข้อมูลวง</h3>
 
               <div className="space-y-4">
                 <div>
-                  <label htmlFor="tenantName" className="block text-sm font-medium text-gray-700">
+                  <label htmlFor="tenantName" className="block text-sm font-medium text-gray-300">
                     ชื่อวง/องค์กร *
                   </label>
                   <input
@@ -82,13 +82,13 @@ export default function RegisterPage() {
                     required
                     value={formData.tenantName}
                     onChange={(e) => setFormData({ ...formData, tenantName: e.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="วงแชร์พนักงานบริษัท ABC"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="tenantSlug" className="block text-sm font-medium text-gray-700">
+                  <label htmlFor="tenantSlug" className="block text-sm font-medium text-gray-300">
                     รหัสวง (สร้างอัตโนมัติถ้าไม่กรอก)
                   </label>
                   <input
@@ -96,7 +96,7 @@ export default function RegisterPage() {
                     type="text"
                     value={formData.tenantSlug}
                     onChange={(e) => setFormData({ ...formData, tenantSlug: e.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="wong-share-abc"
                   />
                 </div>
@@ -104,12 +104,12 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <h3 className="text-lg font-medium text-gray-900 mb-4">ข้อมูลท้าวแชร์ (Admin)</h3>
+              <h3 className="text-lg font-medium text-gray-100 mb-4">ข้อมูลท้าวแชร์ (Admin)</h3>
 
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="adminFirstName" className="block text-sm font-medium text-gray-700">
+                    <label htmlFor="adminFirstName" className="block text-sm font-medium text-gray-300">
                       ชื่อ *
                     </label>
                     <input
@@ -118,12 +118,12 @@ export default function RegisterPage() {
                       required
                       value={formData.adminFirstName}
                       onChange={(e) => setFormData({ ...formData, adminFirstName: e.target.value })}
-                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
 
                   <div>
-                    <label htmlFor="adminLastName" className="block text-sm font-medium text-gray-700">
+                    <label htmlFor="adminLastName" className="block text-sm font-medium text-gray-300">
                       นามสกุล *
                     </label>
                     <input
@@ -132,13 +132,13 @@ export default function RegisterPage() {
                       required
                       value={formData.adminLastName}
                       onChange={(e) => setFormData({ ...formData, adminLastName: e.target.value })}
-                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label htmlFor="adminPhone" className="block text-sm font-medium text-gray-700">
+                  <label htmlFor="adminPhone" className="block text-sm font-medium text-gray-300">
                     เบอร์โทรศัพท์ *
                   </label>
                   <input
@@ -147,13 +147,13 @@ export default function RegisterPage() {
                     required
                     value={formData.adminPhone}
                     onChange={(e) => setFormData({ ...formData, adminPhone: e.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="0891234567"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="adminEmail" className="block text-sm font-medium text-gray-700">
+                  <label htmlFor="adminEmail" className="block text-sm font-medium text-gray-300">
                     Email
                   </label>
                   <input
@@ -161,13 +161,13 @@ export default function RegisterPage() {
                     type="email"
                     value={formData.adminEmail}
                     onChange={(e) => setFormData({ ...formData, adminEmail: e.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="somchai@email.com"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="adminPassword" className="block text-sm font-medium text-gray-700">
+                  <label htmlFor="adminPassword" className="block text-sm font-medium text-gray-300">
                     รหัสผ่าน *
                   </label>
                   <input
@@ -177,12 +177,12 @@ export default function RegisterPage() {
                     minLength={6}
                     value={formData.adminPassword}
                     onChange={(e) => setFormData({ ...formData, adminPassword: e.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
+                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-300">
                     ยืนยันรหัสผ่าน *
                   </label>
                   <input
@@ -192,7 +192,7 @@ export default function RegisterPage() {
                     minLength={6}
                     value={formData.confirmPassword}
                     onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
@@ -208,9 +208,9 @@ export default function RegisterPage() {
           </form>
 
           <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-400">
               มีบัญชีอยู่แล้ว?{' '}
-              <Link to="/login" className="text-blue-600 hover:text-blue-500">
+              <Link to="/login" className="text-blue-400 hover:text-blue-300">
                 เข้าสู่ระบบ
               </Link>
             </p>

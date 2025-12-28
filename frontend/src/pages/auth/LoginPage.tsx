@@ -32,24 +32,24 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="mt-6 text-center text-3xl font-bold text-gray-900">
+        <h2 className="mt-6 text-center text-3xl font-bold text-gray-100">
           เข้าสู่ระบบ
         </h2>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+        <div className="bg-gray-800 py-8 px-4 shadow-lg sm:rounded-lg sm:px-10 border border-gray-700">
           <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded">
+              <div className="bg-red-900/50 border border-red-700 text-red-400 px-4 py-3 rounded">
                 {error}
               </div>
             )}
 
             <div>
-              <label htmlFor="tenantSlug" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="tenantSlug" className="block text-sm font-medium text-gray-300">
                 รหัสวง *
               </label>
               <input
@@ -58,13 +58,13 @@ export default function LoginPage() {
                 required
                 value={formData.tenantSlug}
                 onChange={(e) => setFormData({ ...formData, tenantSlug: e.target.value })}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="wong-share-abc"
               />
             </div>
 
             <div>
-              <label htmlFor="identifier" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="identifier" className="block text-sm font-medium text-gray-300">
                 เบอร์โทร / Email *
               </label>
               <input
@@ -73,13 +73,13 @@ export default function LoginPage() {
                 required
                 value={formData.identifier}
                 onChange={(e) => setFormData({ ...formData, identifier: e.target.value })}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="0891234567"
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-300">
                 รหัสผ่าน *
               </label>
               <input
@@ -88,7 +88,7 @@ export default function LoginPage() {
                 required
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -98,9 +98,9 @@ export default function LoginPage() {
                 type="checkbox"
                 checked={formData.rememberMe}
                 onChange={(e) => setFormData({ ...formData, rememberMe: e.target.checked })}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-600 rounded bg-gray-700"
               />
-              <label htmlFor="rememberMe" className="ml-2 block text-sm text-gray-900">
+              <label htmlFor="rememberMe" className="ml-2 block text-sm text-gray-300">
                 จดจำฉัน
               </label>
             </div>
@@ -115,9 +115,9 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-400">
               ยังไม่มีบัญชี?{' '}
-              <Link to="/register" className="text-blue-600 hover:text-blue-500">
+              <Link to="/register" className="text-blue-400 hover:text-blue-300">
                 ลงทะเบียนท้าวแชร์
               </Link>
             </p>

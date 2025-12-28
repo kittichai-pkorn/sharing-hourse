@@ -76,53 +76,53 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">โปรไฟล์</h1>
+      <h1 className="text-2xl font-bold text-gray-100 mb-6">โปรไฟล์</h1>
 
       {message && (
-        <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded mb-6">
+        <div className="bg-green-900/50 border border-green-700 text-green-400 px-4 py-3 rounded mb-6">
           {message}
         </div>
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded mb-6">
+        <div className="bg-red-900/50 border border-red-700 text-red-400 px-4 py-3 rounded mb-6">
           {error}
         </div>
       )}
 
-      <div className="bg-white shadow rounded-lg p-6 mb-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">ข้อมูลส่วนตัว</h2>
+      <div className="bg-gray-800 shadow-lg rounded-lg p-6 mb-6 border border-gray-700">
+        <h2 className="text-lg font-medium text-gray-100 mb-4">ข้อมูลส่วนตัว</h2>
 
         <form onSubmit={handleUpdateProfile} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">ชื่อ</label>
+              <label className="block text-sm font-medium text-gray-300">ชื่อ</label>
               <input
                 type="text"
                 value={formData.firstName}
                 onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">นามสกุล</label>
+              <label className="block text-sm font-medium text-gray-300">นามสกุล</label>
               <input
                 type="text"
                 value={formData.lastName}
                 onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">เบอร์โทรศัพท์</label>
+            <label className="block text-sm font-medium text-gray-300">เบอร์โทรศัพท์</label>
             <input
               type="text"
               value={user?.email || '-'}
               disabled
-              className="mt-1 block w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-gray-500"
+              className="mt-1 block w-full px-3 py-2 bg-gray-600 border border-gray-600 rounded-md text-gray-400"
             />
             <p className="mt-1 text-xs text-gray-500">ไม่สามารถแก้ไขได้</p>
           </div>
@@ -137,58 +137,58 @@ export default function ProfilePage() {
         </form>
       </div>
 
-      <div className="bg-white shadow rounded-lg p-6 mb-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">ข้อมูลวง</h2>
+      <div className="bg-gray-800 shadow-lg rounded-lg p-6 mb-6 border border-gray-700">
+        <h2 className="text-lg font-medium text-gray-100 mb-4">ข้อมูลวง</h2>
 
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <dt className="text-sm font-medium text-gray-500">ชื่อวง</dt>
-            <dd className="mt-1 text-sm text-gray-900">{tenant?.name}</dd>
+            <dt className="text-sm font-medium text-gray-400">ชื่อวง</dt>
+            <dd className="mt-1 text-sm text-gray-100">{tenant?.name}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-gray-500">รหัสวง</dt>
-            <dd className="mt-1 text-sm text-gray-900">{tenant?.slug}</dd>
+            <dt className="text-sm font-medium text-gray-400">รหัสวง</dt>
+            <dd className="mt-1 text-sm text-gray-100">{tenant?.slug}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-gray-500">บทบาท</dt>
-            <dd className="mt-1 text-sm text-gray-900">
+            <dt className="text-sm font-medium text-gray-400">บทบาท</dt>
+            <dd className="mt-1 text-sm text-gray-100">
               {user?.role === 'ADMIN' ? 'ท้าวแชร์ (Admin)' : 'ลูกแชร์ (User)'}
             </dd>
           </div>
         </dl>
       </div>
 
-      <div className="bg-white shadow rounded-lg p-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">เปลี่ยนรหัสผ่าน</h2>
+      <div className="bg-gray-800 shadow-lg rounded-lg p-6 border border-gray-700">
+        <h2 className="text-lg font-medium text-gray-100 mb-4">เปลี่ยนรหัสผ่าน</h2>
 
         <form onSubmit={handleChangePassword} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700">รหัสผ่านปัจจุบัน</label>
+            <label className="block text-sm font-medium text-gray-300">รหัสผ่านปัจจุบัน</label>
             <input
               type="password"
               value={passwordData.currentPassword}
               onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">รหัสผ่านใหม่</label>
+            <label className="block text-sm font-medium text-gray-300">รหัสผ่านใหม่</label>
             <input
               type="password"
               value={passwordData.newPassword}
               onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">ยืนยันรหัสผ่านใหม่</label>
+            <label className="block text-sm font-medium text-gray-300">ยืนยันรหัสผ่านใหม่</label>
             <input
               type="password"
               value={passwordData.confirmPassword}
               onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 

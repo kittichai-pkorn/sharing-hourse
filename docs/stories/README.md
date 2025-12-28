@@ -9,6 +9,7 @@
 | 1. Authentication | `epic-1-auth/` | 5 | P0-P2 |
 | 2. Dashboard | `epic-2-dashboard/` | 3 | P1-P2 |
 | 3. จัดการสมาชิก | `epic-3-members/` | 4 | P0-P2 |
+| 4. รายละเอียดวงแชร์ | `epic-4-share-group-detail/` | 1 | P0 |
 
 ---
 
@@ -16,8 +17,8 @@
 
 | Phase | Priority | Stories |
 |-------|----------|---------|
-| **MVP** | P0 | 8 |
-| **Core** | P1 | 4 |
+| **MVP** | P0 | 13 |
+| **Core** | P1 | 5 |
 | **Enhancement** | P2 | 4 |
 
 ---
@@ -34,4 +35,4 @@
 
 ---
 
-*v1.1 | Dec 2024*
+*v1.2 | Dec 2024*

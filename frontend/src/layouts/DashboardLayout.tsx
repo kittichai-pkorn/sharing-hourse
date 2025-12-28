@@ -36,12 +36,12 @@ export default function DashboardLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-900">
       {/* Header */}
-      <header className="bg-white shadow">
+      <header className="bg-gray-800 shadow-lg border-b border-gray-700">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-6">
-            <h1 className="text-xl font-bold text-gray-900">{tenant?.name}</h1>
+            <h1 className="text-xl font-bold text-gray-100">{tenant?.name}</h1>
             <nav className="flex gap-4">
               {navItems.map((item) => (
                 <Link
@@ -49,8 +49,8 @@ export default function DashboardLayout() {
                   to={item.path}
                   className={`text-sm ${
                     location.pathname === item.path || location.pathname.startsWith(item.path + '/')
-                      ? 'text-blue-600 font-medium'
-                      : 'text-gray-600 hover:text-gray-900'
+                      ? 'text-blue-400 font-medium'
+                      : 'text-gray-400 hover:text-gray-100'
                   }`}
                 >
                   {item.label}
@@ -61,12 +61,12 @@ export default function DashboardLayout() {
 
           <div className="flex items-center gap-4">
             <NotificationCenter />
-            <span className="text-sm text-gray-600">
+            <span className="text-sm text-gray-400">
               {user?.firstName} {user?.lastName}
             </span>
             <button
               onClick={handleLogout}
-              className="text-sm text-gray-600 hover:text-gray-900"
+              className="text-sm text-gray-400 hover:text-gray-100"
             >
               ออกจากระบบ
             </button>

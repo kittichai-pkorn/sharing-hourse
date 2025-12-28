@@ -132,7 +132,7 @@ export default function CreateShareGroupPage() {
     <div className="max-w-2xl mx-auto">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">สร้างวงแชร์ใหม่</h1>
+        <h1 className="text-2xl font-bold text-gray-100">สร้างวงแชร์ใหม่</h1>
       </div>
 
       {/* Stepper - 3 steps */}
@@ -146,15 +146,15 @@ export default function CreateShareGroupPage() {
                     ? 'bg-green-500 text-white'
                     : step === index + 1
                     ? 'bg-blue-600 text-white'
-                    : 'bg-gray-200 text-gray-600'
+                    : 'bg-gray-700 text-gray-400'
                 }`}
               >
                 {step > index + 1 ? '✓' : index + 1}
               </div>
-              <span className={`ml-2 text-sm hidden sm:block ${step === index + 1 ? 'font-medium' : 'text-gray-500'}`}>
+              <span className={`ml-2 text-sm hidden sm:block ${step === index + 1 ? 'font-medium text-gray-100' : 'text-gray-400'}`}>
                 {label}
               </span>
-              {index < 2 && <div className={`w-16 h-0.5 mx-2 ${step > index + 1 ? 'bg-green-500' : 'bg-gray-200'}`} />}
+              {index < 2 && <div className={`w-16 h-0.5 mx-2 ${step > index + 1 ? 'bg-green-500' : 'bg-gray-700'}`} />}
             </div>
           ))}
         </div>
@@ -162,39 +162,39 @@ export default function CreateShareGroupPage() {
 
       {/* Error */}
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded">
+        <div className="mb-4 bg-red-900/50 border border-red-700 text-red-400 px-4 py-3 rounded">
           {error}
         </div>
       )}
 
       {/* Step Content */}
-      <div className="bg-white shadow rounded-lg p-6">
+      <div className="bg-gray-800 shadow-lg rounded-lg p-6 border border-gray-700">
         {/* Step 1: Basic Info */}
         {step === 1 && (
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">ชื่อวงแชร์ *</label>
+              <label className="block text-sm font-medium text-gray-300">ชื่อวงแชร์ *</label>
               <input
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="เช่น วงแชร์พนักงาน มกราคม 2568"
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">รูปแบบวงแชร์ *</label>
+              <label className="block text-sm font-medium text-gray-300">รูปแบบวงแชร์ *</label>
               <select
                 value={formData.type}
                 onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {Object.entries(typeLabels).map(([value, { label }]) => (
                   <option key={value} value={value}>{label}</option>
                 ))}
               </select>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className="mt-1 text-sm text-gray-400">
                 {typeLabels[formData.type]?.description}
               </p>
             </div>
@@ -206,32 +206,32 @@ export default function CreateShareGroupPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">จำนวนสมาชิก *</label>
+                <label className="block text-sm font-medium text-gray-300">จำนวนสมาชิก *</label>
                 <input
                   type="number"
                   min={2}
                   value={formData.maxMembers}
                   onChange={(e) => setFormData({ ...formData, maxMembers: parseInt(e.target.value) || 0 })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">เงินต้นต่องวด (บาท) *</label>
+                <label className="block text-sm font-medium text-gray-300">เงินต้นต่องวด (บาท) *</label>
                 <input
                   type="number"
                   min={100}
                   value={formData.principalAmount}
                   onChange={(e) => setFormData({ ...formData, principalAmount: parseInt(e.target.value) || 0 })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">รอบการชำระ *</label>
+              <label className="block text-sm font-medium text-gray-300">รอบการชำระ *</label>
               <div className="mt-2 flex gap-4">
                 {Object.entries(cycleTypeLabels).map(([value, label]) => (
-                  <label key={value} className="flex items-center">
+                  <label key={value} className="flex items-center text-gray-300">
                     <input
                       type="radio"
                       name="cycleType"
@@ -248,78 +248,78 @@ export default function CreateShareGroupPage() {
 
             {formData.cycleType === 'DAILY' && (
               <div>
-                <label className="block text-sm font-medium text-gray-700">ระยะห่างงวด (วัน) *</label>
+                <label className="block text-sm font-medium text-gray-300">ระยะห่างงวด (วัน) *</label>
                 <input
                   type="number"
                   min={1}
                   value={formData.cycleDays || 1}
                   onChange={(e) => setFormData({ ...formData, cycleDays: parseInt(e.target.value) || 1 })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <p className="mt-1 text-sm text-gray-500">
+                <p className="mt-1 text-sm text-gray-400">
                   เช่น ระบุ 3 = ทุก 3 วัน (วันที่ 1, 4, 7...)
                 </p>
               </div>
             )}
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">วันที่เริ่มต้น *</label>
+              <label className="block text-sm font-medium text-gray-300">วันที่เริ่มต้น *</label>
               <input
                 type="date"
                 value={formData.startDate}
                 onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
             {/* ส่งต่องวด - required for FIXED_INTEREST and BID_INTEREST */}
             {(formData.type === 'FIXED_INTEREST' || formData.type === 'BID_INTEREST') && (
               <div>
-                <label className="block text-sm font-medium text-gray-700">ส่งต่องวด (บาท) *</label>
+                <label className="block text-sm font-medium text-gray-300">ส่งต่องวด (บาท) *</label>
                 <input
                   type="number"
                   min={1}
                   value={formData.paymentPerRound || ''}
                   onChange={(e) => setFormData({ ...formData, paymentPerRound: e.target.value ? parseInt(e.target.value) : null })}
                   placeholder="ยอดที่ทุกคนส่งทุกงวด"
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             )}
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">ค่าดูแลวง (บาท)</label>
+                <label className="block text-sm font-medium text-gray-300">ค่าดูแลวง (บาท)</label>
                 <input
                   type="number"
                   min={0}
                   value={formData.managementFee || ''}
                   onChange={(e) => setFormData({ ...formData, managementFee: e.target.value ? parseInt(e.target.value) : null })}
                   placeholder="ไม่บังคับ"
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               {/* ดอกเบี้ย - required only for FIXED_INTEREST */}
               {formData.type === 'FIXED_INTEREST' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">ดอกเบี้ย (บาท) *</label>
+                  <label className="block text-sm font-medium text-gray-300">ดอกเบี้ย (บาท) *</label>
                   <input
                     type="number"
                     min={0}
                     value={formData.interestRate || ''}
                     onChange={(e) => setFormData({ ...formData, interestRate: e.target.value ? parseInt(e.target.value) : null })}
                     placeholder="ดอกเบี้ยคงที่ต่องวด"
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               )}
             </div>
 
             {/* Tail Deduction Section */}
-            <div className="border-t pt-4 mt-4">
-              <h4 className="text-sm font-medium text-gray-700 mb-3">หักคำท้าย (ค่าตอบแทนท้าว)</h4>
+            <div className="border-t border-gray-700 pt-4 mt-4">
+              <h4 className="text-sm font-medium text-gray-300 mb-3">หักคำท้าย (ค่าตอบแทนท้าว)</h4>
               <div>
-                <label className="block text-sm font-medium text-gray-700">จำนวนงวดท้าย</label>
+                <label className="block text-sm font-medium text-gray-300">จำนวนงวดท้าย</label>
                 <input
                   type="number"
                   min={0}
@@ -327,10 +327,10 @@ export default function CreateShareGroupPage() {
                   value={formData.tailDeductionRounds || ''}
                   onChange={(e) => setFormData({ ...formData, tailDeductionRounds: e.target.value ? parseInt(e.target.value) : null })}
                   placeholder="เช่น 3 = หัก 3 งวดสุดท้าย"
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 {formData.tailDeductionRounds && formData.tailDeductionRounds > 0 && (
-                  <p className="mt-2 text-sm text-gray-500">
+                  <p className="mt-2 text-sm text-gray-400">
                     หักจากงวด {formData.maxMembers - formData.tailDeductionRounds + 1} ถึง {formData.maxMembers}
                   </p>
                 )}
@@ -338,14 +338,14 @@ export default function CreateShareGroupPage() {
             </div>
 
             {/* Note Section */}
-            <div className="border-t pt-4 mt-4">
-              <label className="block text-sm font-medium text-gray-700">หมายเหตุ</label>
+            <div className="border-t border-gray-700 pt-4 mt-4">
+              <label className="block text-sm font-medium text-gray-300">หมายเหตุ</label>
               <textarea
                 value={formData.note}
                 onChange={(e) => setFormData({ ...formData, note: e.target.value })}
                 placeholder="บันทึกเพิ่มเติมเกี่ยวกับวงแชร์ (ไม่บังคับ)"
                 rows={3}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -354,28 +354,28 @@ export default function CreateShareGroupPage() {
         {/* Step 3: Review */}
         {step === 3 && (
           <div className="space-y-4">
-            <h3 className="text-lg font-medium">ตรวจสอบข้อมูล</h3>
+            <h3 className="text-lg font-medium text-gray-100">ตรวจสอบข้อมูล</h3>
 
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <span className="text-gray-500">ชื่อวง:</span>
-                <span className="ml-2 font-medium">{formData.name}</span>
+                <span className="text-gray-400">ชื่อวง:</span>
+                <span className="ml-2 font-medium text-gray-100">{formData.name}</span>
               </div>
               <div>
-                <span className="text-gray-500">รูปแบบ:</span>
-                <span className="ml-2 font-medium">{typeLabels[formData.type]?.label}</span>
+                <span className="text-gray-400">รูปแบบ:</span>
+                <span className="ml-2 font-medium text-gray-100">{typeLabels[formData.type]?.label}</span>
               </div>
               <div>
-                <span className="text-gray-500">สมาชิก:</span>
-                <span className="ml-2 font-medium">{formData.maxMembers} คน</span>
+                <span className="text-gray-400">สมาชิก:</span>
+                <span className="ml-2 font-medium text-gray-100">{formData.maxMembers} คน</span>
               </div>
               <div>
-                <span className="text-gray-500">เงินต้น:</span>
-                <span className="ml-2 font-medium">{formData.principalAmount.toLocaleString()} บาท</span>
+                <span className="text-gray-400">เงินต้น:</span>
+                <span className="ml-2 font-medium text-gray-100">{formData.principalAmount.toLocaleString()} บาท</span>
               </div>
               <div>
-                <span className="text-gray-500">รอบชำระ:</span>
-                <span className="ml-2 font-medium">
+                <span className="text-gray-400">รอบชำระ:</span>
+                <span className="ml-2 font-medium text-gray-100">
                   {formData.cycleType === 'DAILY'
                     ? `ทุก ${formData.cycleDays} วัน`
                     : cycleTypeLabels[formData.cycleType]}
@@ -383,40 +383,40 @@ export default function CreateShareGroupPage() {
               </div>
               {formData.paymentPerRound && (
                 <div>
-                  <span className="text-gray-500">ส่งต่องวด:</span>
-                  <span className="ml-2 font-medium">{formData.paymentPerRound.toLocaleString()} บาท</span>
+                  <span className="text-gray-400">ส่งต่องวด:</span>
+                  <span className="ml-2 font-medium text-gray-100">{formData.paymentPerRound.toLocaleString()} บาท</span>
                 </div>
               )}
               {formData.managementFee && (
                 <div>
-                  <span className="text-gray-500">ค่าดูแลวง:</span>
-                  <span className="ml-2 font-medium">{formData.managementFee.toLocaleString()} บาท</span>
+                  <span className="text-gray-400">ค่าดูแลวง:</span>
+                  <span className="ml-2 font-medium text-gray-100">{formData.managementFee.toLocaleString()} บาท</span>
                 </div>
               )}
               {formData.interestRate && (
                 <div>
-                  <span className="text-gray-500">ดอกเบี้ย:</span>
-                  <span className="ml-2 font-medium">{formData.interestRate.toLocaleString()} บาท</span>
+                  <span className="text-gray-400">ดอกเบี้ย:</span>
+                  <span className="ml-2 font-medium text-gray-100">{formData.interestRate.toLocaleString()} บาท</span>
                 </div>
               )}
               {formData.tailDeductionRounds && formData.tailDeductionRounds > 0 && (
                 <div className="col-span-2">
-                  <span className="text-gray-500">หักคำท้าย:</span>
-                  <span className="ml-2 font-medium">
+                  <span className="text-gray-400">หักคำท้าย:</span>
+                  <span className="ml-2 font-medium text-gray-100">
                     {formData.tailDeductionRounds} งวดท้าย (งวด {formData.maxMembers - formData.tailDeductionRounds + 1} - {formData.maxMembers})
                   </span>
                 </div>
               )}
               {formData.note && (
                 <div className="col-span-2">
-                  <span className="text-gray-500">หมายเหตุ:</span>
-                  <span className="ml-2 font-medium">{formData.note}</span>
+                  <span className="text-gray-400">หมายเหตุ:</span>
+                  <span className="ml-2 font-medium text-gray-100">{formData.note}</span>
                 </div>
               )}
             </div>
 
-            <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-md p-3">
-              <p className="text-sm text-yellow-800">
+            <div className="mt-4 bg-yellow-900/50 border border-yellow-700 rounded-md p-3">
+              <p className="text-sm text-yellow-400">
                 หลังบันทึกแล้วจะแก้ไขบางข้อมูลไม่ได้
               </p>
             </div>
@@ -429,7 +429,7 @@ export default function CreateShareGroupPage() {
             <button
               type="button"
               onClick={prevStep}
-              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              className="px-4 py-2 border border-gray-600 rounded-md text-gray-300 hover:bg-gray-700"
             >
               ก่อนหน้า
             </button>
@@ -437,7 +437,7 @@ export default function CreateShareGroupPage() {
             <button
               type="button"
               onClick={() => navigate('/share-groups')}
-              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              className="px-4 py-2 border border-gray-600 rounded-md text-gray-300 hover:bg-gray-700"
             >
               ยกเลิก
             </button>
