@@ -317,16 +317,16 @@ export default function CreateShareGroupPage() {
 
             {/* Tail Deduction Section */}
             <div className="border-t border-gray-700 pt-4 mt-4">
-              <h4 className="text-sm font-medium text-gray-300 mb-3">หักคำท้าย (ค่าตอบแทนท้าว)</h4>
+              <h4 className="text-sm font-medium text-gray-300 mb-3">หักท้าย</h4>
               <div>
-                <label className="block text-sm font-medium text-gray-300">จำนวนงวดท้าย</label>
+                <label className="block text-sm font-medium text-gray-300">จำนวนงวดหักท้าย</label>
                 <input
                   type="number"
                   min={0}
                   max={formData.maxMembers}
                   value={formData.tailDeductionRounds || ''}
                   onChange={(e) => setFormData({ ...formData, tailDeductionRounds: e.target.value ? parseInt(e.target.value) : null })}
-                  placeholder="เช่น 3 = หัก 3 งวดสุดท้าย"
+                  placeholder="เช่น 1 = งวดท้ายเป็นของท้าว"
                   className="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 {formData.tailDeductionRounds && formData.tailDeductionRounds > 0 && (
@@ -401,9 +401,9 @@ export default function CreateShareGroupPage() {
               )}
               {formData.tailDeductionRounds && formData.tailDeductionRounds > 0 && (
                 <div className="col-span-2">
-                  <span className="text-gray-400">หักคำท้าย:</span>
+                  <span className="text-gray-400">หักท้าย:</span>
                   <span className="ml-2 font-medium text-gray-100">
-                    {formData.tailDeductionRounds} งวดท้าย (งวด {formData.maxMembers - formData.tailDeductionRounds + 1} - {formData.maxMembers})
+                    {formData.tailDeductionRounds} งวด (ท้าวได้งวด {formData.maxMembers - formData.tailDeductionRounds + 1} - {formData.maxMembers})
                   </span>
                 </div>
               )}

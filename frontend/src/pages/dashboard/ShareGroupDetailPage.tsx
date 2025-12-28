@@ -384,9 +384,11 @@ export default function ShareGroupDetailPage() {
               <thead className="bg-gray-750">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">งวด</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">วันที่</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">ผู้เปีย</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">ยอดส่ง</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">ยอดรับ</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">หักรับ</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">สุทธิ</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">จัดการ</th>
                 </tr>
               </thead>
@@ -407,11 +409,32 @@ export default function ShareGroupDetailPage() {
                     ? (hostMember ? getMemberName(hostMember) : 'ท้าว')
                     : getWinnerName(round);
 
+                  // Calculate net payout (สุทธิ)
+                  const netPayout = round.winnerId
+                    ? group.principalAmount - winnerTailDeduction
+                    : null;
+
+                  // Format date
+                  const formatDate = (dateStr: string | null) => {
+                    if (!dateStr) return '-';
+                    const date = new Date(dateStr);
+                    return date.toLocaleDateString('th-TH', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: '2-digit'
+                    });
+                  };
+
                   return (
                     <tr key={round.id} className="hover:bg-gray-750">
                       {/* งวด */}
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span className="font-medium text-gray-100">{round.roundNumber}</span>
+                      </td>
+
+                      {/* วันที่ */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className="text-sm text-gray-100">{formatDate(round.dueDate)}</span>
                       </td>
 
                       {/* ผู้เปีย + วิธีการ */}
@@ -453,10 +476,10 @@ export default function ShareGroupDetailPage() {
                         </div>
                       </td>
 
-                      {/* ยอดส่ง (ยอดเก็บ) */}
+                      {/* ยอดรับ (เงินต้น) */}
                       <td className="px-4 py-3 whitespace-nowrap text-right">
                         <span className="text-sm text-gray-100">
-                          {round.winnerId ? collectedAmount.toLocaleString() : '-'}
+                          {round.winnerId ? group.principalAmount.toLocaleString() : '-'}
                         </span>
                       </td>
 
@@ -464,6 +487,13 @@ export default function ShareGroupDetailPage() {
                       <td className="px-4 py-3 whitespace-nowrap text-right">
                         <span className="text-sm text-orange-400">
                           {round.winnerId ? winnerTailDeduction.toLocaleString() : '-'}
+                        </span>
+                      </td>
+
+                      {/* สุทธิ */}
+                      <td className="px-4 py-3 whitespace-nowrap text-right">
+                        <span className="text-sm text-green-400 font-medium">
+                          {netPayout !== null ? netPayout.toLocaleString() : '-'}
                         </span>
                       </td>
 

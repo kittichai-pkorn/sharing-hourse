@@ -10,6 +10,7 @@
 | 2. Dashboard | `epic-2-dashboard/` | 3 | P1-P2 |
 | 3. จัดการสมาชิก | `epic-3-members/` | 4 | P0-P2 |
 | 4. รายละเอียดวงแชร์ | `epic-4-share-group-detail/` | 1 | P0 |
+| 5. STEP_INTEREST (ขั้นบันได) | `epic-5-step-interest/` | 5 | P0-P1 |
 
 ---
 
@@ -17,8 +18,8 @@
 
 | Phase | Priority | Stories |
 |-------|----------|---------|
-| **MVP** | P0 | 13 |
-| **Core** | P1 | 5 |
+| **MVP** | P0 | 17 |
+| **Core** | P1 | 6 |
 | **Enhancement** | P2 | 4 |
 
 ---
